@@ -99,7 +99,7 @@ module "central_api_sg" {
   }
   peer_hub_cidrs = flatten([for k, h in local.peer_hubs : h.subnet_cidrs_by_tier.app])
 
-  allow_https_internet_egress = true # IdP JWKS + dual-region metric writes; front with Network Firewall in prod
+  allow_https_internet_egress = true # other hub's Cognito JWKS + dual-region metric writes; front with Network Firewall in prod
 }
 
 module "page_topic" {

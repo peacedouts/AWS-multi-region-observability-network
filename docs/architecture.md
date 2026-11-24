@@ -16,6 +16,7 @@ Internal teams need one place to review and rate edge-device events. The event d
 | What the center can reach | A regional gateway in an interconnect subnet, never the database | Keeps credentials, schema, authorization and audit inside the jurisdiction. Routes writes by construction. See [ADR-0002](adr/0002-regional-gateway-not-direct-db.md). |
 | Availability model | Two active-active stateless hubs, failure-oblivious retries, per-region degradation | Six nines is only reachable if no single region, path or deploy can cause an error a user sees. See [ADR-0003](adr/0003-six-nines-scope.md). |
 | Address plan | One reviewed `network-plan.yaml`; subnet CIDRs derived from it | Peering requires non-overlapping CIDRs, and every route and SG rule must be precise. See [ADR-0004](adr/0004-ip-address-plan.md). |
+| Identity | Amazon Cognito user pool per hub, both federated to the corporate IdP; tokens from either pool accepted by both hubs and every regional gateway | Reuses the regional stacks' Cognito/JWT model without making one region's pool a single point of failure. See [ADR-0005](adr/0005-identity-cognito-per-hub.md). |
 | Residency enforcement | SCP region-lock + no data at rest centrally + regional KMS + in-region audit | Residency is enforced by the platform, not by convention. |
 
 ---
@@ -28,7 +29,7 @@ Internal teams need one place to review and rate edge-device events. The event d
 
 1. **The center may *process* regional data in transit but must not *store* it.** Viewing EU data from a hub outside the EU is still a cross-border access under GDPR. The legal basis (SCCs/DPF, DPA with the client) is a legal decision, not a network one. The design supports both answers. Reviewers can be pinned to the in-jurisdiction hub (EU reviewers → `eu-west-1`), and if Legal requires it, EU-bound calls can be restricted to the EU hub with one SG and route change.
 2. **Video is the heavy, sensitive part.** Clips are served from the regional S3 bucket via presigned URL and never proxied centrally.
-3. **Reviewers are internal staff** authenticated by the corporate IdP (Okta/Entra-style SSO). Region entitlements come from IdP group claims (`regions: ["eu","us"]`).
+3. **Reviewers are internal staff** with accounts in the corporate IdP (Okta/Entra-style SSO). They sign in through a **Cognito user pool in each hub**, federated to that IdP, matching how the regional stacks already authenticate with Cognito. IdP group membership maps to a `regions` claim (`["eu","us"]`) in the Cognito token.
 4. **The regional stacks exist.** The spoke stack is written greenfield for clarity. In practice it imports the existing VPC and *adds* the interconnect tier, gateway SG and guardrails (see `live/prod/spoke/main.tf`).
 5. **CIDRs can be made non-overlapping.** If an existing spoke overlaps and can't be re-addressed, that spoke uses PrivateLink instead of peering (ADR-0001). The interconnect-tier contract stays the same.
 6. **Region choice:** US `us-east-1`, EU `eu-central-1`, CA `ca-central-1`, APAC `ap-southeast-2`. Each also has an in-jurisdiction DR region reserved (`us-west-2`, `eu-west-1`, `ca-west-1`, `ap-southeast-4`). APAC residency is country-specific; "APAC" is treated as one jurisdiction (Australia) here, and other APAC countries become new spokes. `hub-use1` and the US spoke share `us-east-1`, so that one peering is intra-region rather than inter-region. That is deliberate: the busiest region gets the lowest latency, and the `vpc_peering` module handles both cases. The design does not rely on it, because security groups use CIDRs everywhere for consistency, even where same-region SG references would be possible.
@@ -44,17 +45,17 @@ Internal teams need one place to review and rate edge-device events. The event d
 
 ```mermaid
 flowchart TB
-    users["Internal reviewers<br/>corporate SSO · region entitlements in JWT"]
+    users["Internal reviewers<br/>corporate SSO via Cognito · regions claim in JWT"]
     ga["AWS Global Accelerator<br/>2 anycast IPs · health-checked endpoints"]
     users --> ga
 
     subgraph CENTRAL["Central platform account · no event data at rest"]
         direction LR
         subgraph HUB1["hub-use1 · us-east-1 · 10.10.0.0/16"]
-            api1["WAF → public ALB<br/>Central API on Fargate · 3 AZ"]
+            api1["WAF → public ALB<br/>Central API on Fargate · 3 AZ<br/>Cognito pool A (federated)"]
         end
         subgraph HUB2["hub-euw1 · eu-west-1 · 10.11.0.0/16"]
-            api2["WAF → public ALB<br/>Central API on Fargate · 3 AZ"]
+            api2["WAF → public ALB<br/>Central API on Fargate · 3 AZ<br/>Cognito pool B (federated)"]
         end
     end
     ga --> api1
@@ -119,9 +120,10 @@ sequenceDiagram
     participant DB as Aurora EU (reader / writer)
     participant S3 as S3 EU (video)
 
+    Note over R,H: Sign-in: the hub's Cognito pool federates to the corporate IdP (SSO + MFA).<br/>Tokens from either hub's pool are accepted by both hubs and all gateways.
     R->>GA: GET /events?region=eu (JWT)
     GA->>H: nearest healthy hub
-    H->>H: validate JWT · regions claim contains "eu" · rate limit
+    H->>H: validate JWT (issuer = pool A or B) · regions claim contains "eu" · rate limit
     H->>G: mTLS over peering · forwards end-user identity
     G->>G: authorize again · write access-audit record (stays in EU)
     G->>DB: query via READER endpoint
@@ -231,7 +233,7 @@ Cross-region peering does **not** support referencing security groups in the pee
 | Keys leaving the region | KMS keys are single-region, created in the regional account, and never shared with the hub account | SCP + key policies |
 | Who saw what | Every read is audited **in the owning region** (user, event, time, source hub). The regional DPO can query it without depending on the center. | Regional gateway |
 | Regions reaching each other | No spoke↔spoke peering, peering is non-transitive, and spoke accounts may only accept peering from hub-account VPCs (SCP `ec2:RequesterVpc`) | Topology + SCP |
-| Least-privilege human access | JWT `regions` claim from IdP groups, checked twice: hub (coarse) and regional gateway (authoritative) | Central API + gateway |
+| Least-privilege human access | JWT `regions` claim (IdP groups mapped by Cognito), checked twice: hub (coarse) and regional gateway (authoritative) | Central API + gateway |
 
 If Legal decides EU data may only be processed by EU infrastructure, the change is small: drop `hub-use1` from the EU gateway SG and peering. EU-entitled reviewers then always land on `hub-euw1`, which keeps its fallback path for every other region. Because addressing and access are plan-driven, that is a one-line PR.
 
@@ -241,7 +243,7 @@ If Legal decides EU data may only be processed by EU infrastructure, the change 
 
 | Principal | Lives in | Can do | Cannot do |
 |---|---|---|---|
-| Reviewer (human) | Corporate IdP | Call the central API with a JWT carrying `regions` entitlements | Reach any regional network or AWS API directly |
+| Reviewer (human) | Corporate IdP, federated through a Cognito pool per hub | Call the central API with a JWT carrying `regions` entitlements | Reach any regional network or AWS API directly |
 | Central API task role | Hub account | Read its mTLS client cert, write metrics/logs | Assume any role in regional accounts. It holds **no** cross-account IAM to data. |
 | Regional gateway task role | Each regional account | `rds-db:connect` (IAM DB auth: reader user and a narrowly-scoped writer user for ratings), `s3:GetObject` on the event bucket (for presigning), write the access-audit log | Anything outside its region (SCP) |
 | `terraform-network-deployer` | Every account | Network + monitoring plumbing, assumed only by the CI pipeline role, which itself trusts only this repository's GitHub OIDC subject | Data plane: denied `rds:*`, `rds-db:connect`, `secretsmanager:GetSecretValue`, `kms:Decrypt` and event-bucket objects by permissions boundary |
@@ -283,7 +285,8 @@ A region outage then degrades gracefully. Reviewers see "EU temporarily unavaila
 | Regional gateway / region down | `region_unreachable` alarm (both hubs) | None centrally by design; regional DR if enabled | That region unavailable, others unaffected |
 | Peering/route/SG deleted out of band | Probe + out-of-band-change alert + Terraform drift | Other hub covers; restore with `apply` | None while one path remains |
 | Global Accelerator degradation | External synthetic checks (outside AWS) | Clients fall back to per-hub DNS names | Seconds |
-| IdP outage | Login error rate | Existing tokens valid until expiry (JWKS cached) | New logins blocked |
+| One hub's Cognito pool impaired | Sign-in error rate per hub | New sign-ins go through the other hub's pool; issued tokens keep working on both hubs | None for signed-in users |
+| Corporate IdP outage | Sign-in error rate on both hubs | Existing tokens valid until expiry (keys cached) | New sign-ins blocked |
 | Bad deploy | Per-hub canary metrics | Automatic rollback, other hub untouched | Retried requests |
 
 ---
@@ -309,15 +312,23 @@ Giving the central API read access straight to each Aurora cluster would look si
 
 One hub cannot reach six nines (§8). Two hubs in different jurisdictions also give EU reviewers an EU processing path (`eu-west-1`) and everyone else a North American one (`us-east-1`). A third hub (e.g. `ap-southeast-2`) can be added when APAC review volume justifies it: one plan entry and four peering blocks.
 
-### 9.4 Hub front door: ALB + corporate IdP rather than API Gateway + Cognito
+### 9.4 Front door and identity: what we kept from the regional stacks, and what we changed
 
-The regional stacks use API Gateway with Cognito, and they keep it: that path serves devices and clients and is untouched. The hubs serve *internal staff* and deviate on purpose:
+The regional stacks use API Gateway secured by Cognito. The hubs **keep Cognito** and **replace API Gateway with Global Accelerator + ALB**.
 
-- **Global Accelerator endpoints must be ALB, NLB, EC2 or Elastic IPs.** API Gateway can't be a GA endpoint, and putting GA in front of an ALB is what gives the hubs sub-minute, DNS-free failover (§8).
-- **Cognito user pools are regional.** A pool in one hub region would be a single point of failure for logins on both hubs. Staff already live in the corporate IdP (SSO, MFA, group-based entitlements), so the hubs trust that issuer directly and validate JWTs locally against cached keys. Each hub authenticates on its own.
-- WAF attaches to the ALB exactly as it does to API Gateway, so edge protection is unchanged.
+**Kept: Cognito and its JWT model.** Teams already know how to run it, and the regional stacks already validate Cognito tokens and claims. The one problem is that a user pool is regional, so a single pool would be a single point of failure for both hubs. The answer is **one pool per hub**:
 
-**Alternative if consistency with the regional stacks matters more:** keep API Gateway and Cognito in each hub. Give each hub its own user pool, both federated to the corporate IdP, and have the regional gateway trust both issuers, so no single pool is a point of failure. The cost is the front door: without Global Accelerator, failover between hubs falls back to Route 53 health checks and DNS TTLs, typically tens of seconds or more per event. That alone exceeds the yearly six-nines budget unless clients retry on the other hub themselves. I chose ALB + GA for that reason, and would revisit it if the team's operational familiarity with API Gateway outweighs it.
+- Both pools federate to the corporate IdP (SAML/OIDC), so staff still have one SSO login with MFA.
+- Both pools are configured identically by Terraform, including the mapping from IdP groups to a `regions` claim.
+- The central API and every regional gateway accept tokens from **either** pool (two trusted issuers, two cached key sets). A user signed in through hub A whose next request lands on hub B is served without a new sign-in. That is what keeps hub failover invisible (§8).
+- Tokens are validated **in the service**, not with the ALB's built-in Cognito sign-in action, which binds a session to one pool and would force a re-login on failover.
+- Refresh tokens are pool-specific. After a failover, the access token keeps working until it expires, then the client does a silent SSO redirect through the surviving hub's pool. The user sees a page reload at most, never an error.
+
+**Changed: API Gateway → Global Accelerator + ALB.**
+
+- **Global Accelerator endpoints must be ALB, NLB, EC2 or Elastic IPs**, so API Gateway can't sit behind it. GA is what gives the hubs anycast, DNS-free failover between regions.
+- Without GA, failover would rely on Route 53 health checks and DNS TTLs, typically tens of seconds or more per event, which alone exceeds the yearly six-nines budget. CloudFront origin failover only retries reads, not the POST that submits a rating.
+- WAF attaches to the ALB exactly as it does to API Gateway, so edge protection is unchanged. Per-route throttling moves from API Gateway usage plans to WAF rate-based rules and the service itself.
 
 ### 9.5 Global Accelerator rather than Route 53 latency/failover
 
@@ -328,7 +339,7 @@ DNS failover is bounded by TTLs and resolver caching that we don't control. GA g
 ## 10. Security considerations (by layer)
 
 - **Edge:** AWS WAF on the hub ALBs (managed rule groups, rate-based rules, geo/IP allow-list for corporate egress). Shield Advanced on GA. TLS 1.2+ only.
-- **Identity:** corporate IdP SSO with MFA and short-lived JWTs. Region entitlements from IdP groups, checked at hub and gateway. No long-lived credentials anywhere; CI uses OIDC.
+- **Identity:** a Cognito user pool per hub, federated to the corporate IdP (SSO + MFA), with short-lived access tokens. Region entitlements come from IdP groups via the `regions` claim and are checked at the hub and again at the gateway. Both hubs and all gateways trust exactly the two hub pools as issuers. No long-lived credentials anywhere; CI uses OIDC.
 - **Transit:** inter-region peering traffic is encrypted by AWS on the backbone. On top of that, TLS 1.3 mTLS between hub and gateway with Private-CA-issued short-lived certs, so the network path is never trusted on its own.
 - **Network:** subnet-precise routes, default-deny egress SGs, data-tier NACLs, default SG stripped (CIS), no public IPs by default, VPC endpoints for AWS APIs, NAT egress fronted by AWS Network Firewall domain allow-listing in production.
 - **Data at rest:** regional KMS keys with rotation. Flow logs and SNS encrypted with CMKs. Nothing sensitive at rest centrally.
@@ -372,4 +383,4 @@ Inter-region RTTs range from tens of milliseconds (US↔CA) to roughly 200+ ms (
 | Six nines depends on client retry behavior | Ship an internal client SDK with the retry budget and hub fallback built in. Measure SLO at the edge after retries. |
 | Probe-based detection has blind spots | Combine with real-traffic RED metrics and a negative reachability test in CI (see monitoring doc) |
 
-**Implemented in this repo vs designed only.** Implemented: VPC module (tiers, per-tier routing, NAT, endpoints, NACL, flow logs), cross-account cross-region peering module, SG modules, connectivity probe, correlated alerting, change guardrails, deployer IAM role with boundary, SCPs, live stacks for 2 hubs, 4 spokes and the full peering mesh. Designed only: central API and regional gateway services, GA/ALB/WAF, Private CA, private hosted zones, OAM wiring, Grafana dashboards.
+**Implemented in this repo vs designed only.** Implemented: VPC module (tiers, per-tier routing, NAT, endpoints, NACL, flow logs), cross-account cross-region peering module, SG modules, connectivity probe, correlated alerting, change guardrails, deployer IAM role with boundary, SCPs, live stacks for 2 hubs, 4 spokes and the full peering mesh. Designed only: central API and regional gateway services, GA/ALB/WAF, the per-hub Cognito pools, Private CA, private hosted zones, OAM wiring, Grafana dashboards.

@@ -2,13 +2,13 @@
 
 Terraform and design documents for a **centralized observability platform** that lets internal teams review and rate edge-device events stored in **data-resident regional AWS stacks** (US, EU, CA, APAC), without moving that data out of its jurisdiction.
 
-> **Start here:** [`docs/architecture.md`](docs/architecture.md) (design, diagrams, security, decisions) · [`docs/monitoring.md`](docs/monitoring.md) (metrics and alerting) · [`docs/deployment.md`](docs/deployment.md) (module organization and rollout) · [`docs/adr/`](docs/adr) (decision records)
+> **Start here:** [`docs/architecture.md`](docs/architecture.md) (design, diagrams, security, decisions) · [`docs/monitoring.md`](docs/monitoring.md) (metrics and alerting) · [`docs/deployment.md`](docs/deployment.md) (module organization and rollout) · [`docs/adr/`](docs/adr) (decision records, including [ADR-0005](docs/adr/0005-identity-cognito-per-hub.md) on identity)
 
 ## The design at a glance
 
 ```mermaid
 flowchart LR
-    U["Reviewers (SSO)"] --> GA["Global Accelerator"]
+    U["Reviewers (SSO via Cognito)"] --> GA["Global Accelerator"]
     GA --> H1["hub-use1<br/>central API · stateless"]
     GA --> H2["hub-euw1<br/>central API · stateless"]
     H1 <-.-> H2
@@ -92,7 +92,7 @@ module "peer_hub_euw1_spoke_eu" {
 ## Assumptions (full list in the design doc §2)
 
 - The center may *process* regional data in transit but must not *store* it. The legal basis for cross-border access is Legal's call, and the design can pin a jurisdiction to its own hub with a one-line change.
-- Reviewers are internal staff on the corporate IdP. Region entitlements come from IdP groups.
+- Reviewers are internal staff signing in through a Cognito user pool in each hub, federated to the corporate IdP. Region entitlements come from IdP groups.
 - Regional CIDRs can be made non-overlapping. Any spoke that can't uses PrivateLink instead ([ADR-0001](docs/adr/0001-connectivity-vpc-peering.md)).
 - Monitoring data has no PII (given), and services log IDs, never payloads.
 

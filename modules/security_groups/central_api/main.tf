@@ -3,7 +3,8 @@
 #
 # Egress-restricted SG for the central API tasks and the connectivity probe.
 # Default-deny egress: they can talk to regional gateways, the peer hub,
-# in-VPC endpoints, and (optionally) the corporate IdP through NAT.
+# in-VPC endpoints, and (optionally) HTTPS through NAT for the other hub's
+# Cognito signing keys and cross-region metric writes.
 ###############################################################################
 
 variable "name" {
@@ -35,7 +36,7 @@ variable "peer_hub_cidrs" {
 variable "allow_https_internet_egress" {
   type        = bool
   default     = false
-  description = "Allow 443 to 0.0.0.0/0 via NAT (IdP JWKS, cross-region CloudWatch writes). In production, pair with AWS Network Firewall domain allow-listing."
+  description = "Allow 443 to 0.0.0.0/0 via NAT (the other hub's Cognito JWKS, cross-region CloudWatch writes). In production, pair with AWS Network Firewall domain allow-listing."
 }
 
 variable "tags" {
@@ -105,7 +106,7 @@ resource "aws_vpc_security_group_egress_rule" "https_internet" {
   count = var.allow_https_internet_egress ? 1 : 0
 
   security_group_id = aws_security_group.this.id
-  description       = "HTTPS via NAT (IdP, cross-region metrics)"
+  description       = "HTTPS via NAT (Cognito JWKS, cross-region metrics)"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
   from_port         = 443
