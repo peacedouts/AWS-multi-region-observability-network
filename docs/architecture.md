@@ -241,6 +241,36 @@ If Legal decides EU data may only be processed by EU infrastructure, the change 
 
 ## 7. Identity and IAM
 
+```mermaid
+flowchart LR
+    subgraph GH["GitHub Actions"]
+        oidc["Workflow OIDC token<br/>sub = repo:peacedouts/…:environment:prod"]
+    end
+    subgraph TOOL["Tooling account"]
+        pipe["github-actions-network-pipeline<br/>trusts only this repo's OIDC subject"]
+    end
+    subgraph EACH["Every hub and regional account"]
+        dep["terraform-network-deployer<br/>NetworkAdministrator + permissions boundary<br/>boundary DENIES the data plane"]
+        fl["*-flow-logs role<br/>write one log group"]
+        pr["*-connectivity-probe role<br/>PutMetricData, one namespace"]
+    end
+    oidc -- "AssumeRoleWithWebIdentity" --> pipe
+    pipe -- "sts:AssumeRole" --> dep
+    dep -- "creates and manages" --> fl
+    dep -- "creates and manages" --> pr
+
+    subgraph RT["Runtime identities: no cross-account IAM path to data"]
+        rev["Reviewer<br/>Cognito JWT with regions claim"]
+        capi["Central API task role (hub account)<br/>mTLS client cert · metrics and logs"]
+        gw["Regional gateway task role (regional account)<br/>rds-db:connect · s3:GetObject for presign"]
+    end
+    rev -- "JWT" --> capi
+    capi -- "mTLS + forwarded JWT<br/>a network call, not an IAM assume" --> gw
+
+    scp["SCPs: region lock · only deployer or break-glass changes the network · audit trail cannot be disabled"]
+    scp -. "guardrail over" .-> EACH
+```
+
 | Principal | Lives in | Can do | Cannot do |
 |---|---|---|---|
 | Reviewer (human) | Corporate IdP, federated through a Cognito pool per hub | Call the central API with a JWT carrying `regions` entitlements | Reach any regional network or AWS API directly |

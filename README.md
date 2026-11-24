@@ -27,6 +27,22 @@ flowchart LR
 - **Six nines, stated honestly:** active-active hubs with failure-oblivious retries for the platform, and a separate per-region data SLO bounded by residency ([ADR-0003](docs/adr/0003-six-nines-scope.md)).
 - **Monitoring built for a network with no native peering metrics:** a hub × region probe matrix with correlated composite alarms that page on impact and stay alive if a whole region is lost.
 
+## Where each requirement is answered
+
+| The brief asks for | Where |
+|---|---|
+| Architecture diagram: VPC peering, security groups, IAM roles, data-flow paths | [Design doc](docs/architecture.md) §3.1 topology · §4 request flow · §5.2 routing and security groups · §7 IAM trust |
+| Secure cross-region connectivity that keeps data resident | Design doc §5 and §6 · [ADR-0001](docs/adr/0001-connectivity-vpc-peering.md) · [ADR-0002](docs/adr/0002-regional-gateway-not-direct-db.md) |
+| Central reads from every region, writes routed to the owning region | Design doc §4 · ADR-0002 |
+| Redundancy, regional failures, 99.9999% | Design doc §8 · [ADR-0003](docs/adr/0003-six-nines-scope.md) |
+| Inter-region latency | Design doc §11 |
+| Terraform module structure and how it's organized and deployed | `modules/` · `live/prod/` · [deployment.md](docs/deployment.md) |
+| VPC creation and VPC peering code, with an instantiation example | `modules/vpc` · `modules/vpc_peering` · `live/prod/connectivity` · example below |
+| Why each connectivity option was chosen | Design doc §9 · [`docs/adr/`](docs/adr) |
+| Network monitoring: metrics and alerting | [monitoring.md](docs/monitoring.md) · `modules/connectivity_probe` · `modules/connectivity_alerting` |
+| Security best practices, auditability | Design doc §7 and §10 · `policies/scp/` · `modules/network_guardrails` · `modules/iam_network_deployer` |
+| Assumptions and scope | Design doc §2 and §13 |
+
 ## Repository layout
 
 ```
