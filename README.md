@@ -34,6 +34,8 @@ flowchart LR
 
 Two central "hubs" run the API, one in `us-east-1` and one in `eu-west-1`, behind Global Accelerator. Each hub is peered with every regional VPC, and the two hubs are peered with each other as a fallback path.
 
+**Hubs and regions are separate layers.** The four regional stacks (US, EU, CA and APAC) are where the data lives, one per jurisdiction. The two hubs are where the central API runs, and they store no data, so their number isn't tied to the number of regions. There are two purely for redundancy, because no single hub can reach six nines. Each hub connects to all four regions, which is why this is "dual hub-and-spoke": 8 hub-to-region connections plus one between the hubs. The locations are deliberate: `us-east-1` sits close to both the US and Canadian stacks, and `eu-west-1` lets EU reviewers work on EU data without it leaving the EU. Adding a region adds a spoke, not a hub.
+
 A few decisions shape everything else:
 
 - **The regions can't talk to each other.** VPC peering isn't transitive, so even with a bad route, EU traffic can't reach the US VPC through a hub.
