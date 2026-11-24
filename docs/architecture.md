@@ -37,7 +37,7 @@ Nothing central stores event data. Video never passes through the hubs either: t
 4. **The regional stacks exist.** The spoke stack is written greenfield for clarity. In practice it imports the existing VPC and *adds* the interconnect tier, gateway SG and guardrails (see `live/prod/spoke/main.tf`).
 5. **CIDRs can be made non-overlapping.** If an existing spoke overlaps and can't be re-addressed, that spoke uses PrivateLink instead of peering (ADR-0001). The interconnect-tier contract stays the same.
 6. **Region choice:** US `us-east-1`, EU `eu-central-1`, CA `ca-central-1`, APAC `ap-southeast-2`. Each also has an in-jurisdiction DR region reserved (`us-west-2`, `eu-west-1`, `ca-west-1`, `ap-southeast-4`). APAC residency is country-specific; "APAC" is treated as one jurisdiction (Australia) here, and other APAC countries become new spokes. `hub-use1` and the US spoke share `us-east-1`, so that one peering is intra-region rather than inter-region. That is deliberate: the busiest region gets the lowest latency, and the `vpc_peering` module handles both cases. The design does not rely on it, because security groups use CIDRs everywhere for consistency, even where same-region SG references would be possible.
-7. **Monitoring data contains no PII** (given). I add one enforcement: services log event IDs, never payloads, checked by a log-scrubbing test in CI.
+7. **Monitoring data contains no PII** (given). I add one enforcement: services log event IDs, never payloads, checked by a log-scrubbing test in each service's CI (the services themselves are outside this repo).
 
 **Explicitly out of scope:** the event ingestion path (devices → MQTT → Lambda fleet), the regional data model and the review UI. This design only adds an access path *into* the existing regional stacks and changes nothing in their ingestion.
 
@@ -169,7 +169,7 @@ All addressing comes from [`live/prod/network-plan.yaml`](../live/prod/network-p
 | spoke-ca | 10.40.0.0/16 | … | … | … | 10.40.240-242.0 |
 | spoke-apac | 10.50.0.0/16 | … | … | … | 10.50.240-242.0 |
 
-Ranges are reserved for in-jurisdiction DR VPCs and future jurisdictions. The plan is mirrored into AWS VPC IPAM pools so nothing outside this repo can allocate an overlapping range.
+Ranges are reserved for in-jurisdiction DR VPCs and future jurisdictions. Two guardrails keep ranges from overlapping: every Terraform plan fails if two VPC ranges in the plan overlap (checked in the `network_plan` module, with a test), and the plan is mirrored into AWS VPC IPAM pools so nothing created outside this repo can take an overlapping range.
 
 ### 5.2 Inside a spoke: who can route where
 
@@ -417,4 +417,4 @@ Inter-region RTTs range from tens of milliseconds (US↔CA) to roughly 200+ ms (
 | Six nines depends on client retry behavior | Ship an internal client SDK with the retry budget and hub fallback built in. Measure SLO at the edge after retries. |
 | Probe-based detection has blind spots | Combine with real-traffic RED metrics and a negative reachability test after every apply (see monitoring doc) |
 
-**Implemented in this repo vs designed only.** Implemented: VPC module (tiers, per-tier routing, NAT, endpoints, NACL, flow logs), cross-account cross-region peering module, SG modules, connectivity probe, correlated alerting, change guardrails, deployer IAM role with boundary, SCPs, live stacks for 2 hubs, 4 spokes and the full peering mesh. Designed only: central API and regional gateway services, GA/ALB/WAF, the per-hub Cognito pools, Private CA, private hosted zones, OAM wiring, Grafana dashboards.
+**Implemented in this repo vs designed only.** Implemented: VPC module (tiers, per-tier routing, NAT, endpoints, NACL, flow logs), cross-account cross-region peering module, SG modules, connectivity probe, correlated alerting, change guardrails, deployer IAM role with boundary, SCPs, the CIDR-overlap check and its tests, live stacks for 2 hubs, 4 spokes and the full peering mesh. Designed only: central API and regional gateway services, GA/ALB/WAF, the per-hub Cognito pools, Private CA, private hosted zones, OAM wiring, Grafana dashboards.
