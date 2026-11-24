@@ -1,0 +1,15 @@
+# Checkov policy for this repo. Findings are reported in CI; the skips below
+# are deliberate design decisions, each with its reason. Anything not listed
+# here is reported; flip soft-fail to false once the baseline is triaged.
+framework: terraform
+skip-check:
+  - CKV_AWS_117   # Lambda in VPC: the probe IS in a VPC (false positive on module inputs)
+  - CKV_AWS_116   # Lambda DLQ: probe is scheduled and idempotent; failures surface as missing metrics
+  - CKV_AWS_272   # Lambda code signing: out of scope for a ~100-line probe; add with the platform's signing profile
+  - CKV_AWS_50    # Lambda X-Ray tracing: probe emits its own timing metrics
+  - CKV_AWS_173   # Lambda env-var KMS: env holds no secrets (mTLS material comes from Secrets Manager)
+  - CKV_AWS_338   # Log retention >= 1 year: probe/flow logs are 30/90 days hot; long-term copies go to log-archive
+  - CKV2_AWS_5    # SG attached: SGs are attached by service stacks outside this repo
+  - CKV2_AWS_12   # Default SG restricts all traffic: done via aws_default_security_group (false positive)
+  - CKV2_AWS_11   # VPC flow logs: enabled in modules/vpc (false positive across module boundary)
+soft-fail: true   # report-only until the first real baseline run has been triaged

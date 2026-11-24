@@ -244,7 +244,7 @@ If Legal decides EU data may only be processed by EU infrastructure, the change 
 | Reviewer (human) | Corporate IdP | Call the central API with a JWT carrying `regions` entitlements | Reach any regional network or AWS API directly |
 | Central API task role | Hub account | Read its mTLS client cert, write metrics/logs | Assume any role in regional accounts. It holds **no** cross-account IAM to data. |
 | Regional gateway task role | Each regional account | `rds-db:connect` (IAM DB auth: reader user and a narrowly-scoped writer user for ratings), `s3:GetObject` on the event bucket (for presigning), write the access-audit log | Anything outside its region (SCP) |
-| `terraform-network-deployer` | Every account | Network + monitoring plumbing, assumed only by the CI OIDC role with a repository session tag | Data plane: denied `rds:*`, `rds-db:connect`, `secretsmanager:GetSecretValue`, `kms:Decrypt` and event-bucket objects by permissions boundary |
+| `terraform-network-deployer` | Every account | Network + monitoring plumbing, assumed only by the CI pipeline role, which itself trusts only this repository's GitHub OIDC subject | Data plane: denied `rds:*`, `rds-db:connect`, `secretsmanager:GetSecretValue`, `kms:Decrypt` and event-bucket objects by permissions boundary |
 | Flow-log role, probe role | Per VPC / hub | Write logs / put metrics in one namespace | Anything else |
 | Break-glass network admin | Every account, MFA + approval | Emergency network change | Silently: every action raises an out-of-band-change alert |
 

@@ -45,7 +45,7 @@ module "deployer" {
 
   role_name                  = local.raw.pipeline_role_name
   trusted_pipeline_role_arns = [var.pipeline_role_arn]
-  github_repository          = "example-org/multi-region-observability-network"
+  github_repository          = "peacedouts/multi-region-observability-network"
 }
 
 output "deployer_role_arn" {

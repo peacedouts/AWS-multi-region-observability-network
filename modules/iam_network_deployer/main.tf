@@ -23,7 +23,7 @@ variable "trusted_pipeline_role_arns" {
 
 variable "github_repository" {
   type        = string
-  description = "owner/repo, recorded as a session tag requirement for traceability."
+  description = "owner/repo that manages this role, recorded as a tag for traceability."
 }
 
 variable "tags" {
@@ -36,16 +36,15 @@ data "aws_caller_identity" "current" {}
 
 data "aws_iam_policy_document" "trust" {
   statement {
-    actions = ["sts:AssumeRole", "sts:TagSession"]
+    actions = ["sts:AssumeRole"]
     principals {
       type        = "AWS"
       identifiers = var.trusted_pipeline_role_arns
     }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/repository"
-      values   = [var.github_repository]
-    }
+    # The pipeline role itself is only assumable from this repository's
+    # GitHub OIDC subject (repo:<owner>/<repo>:environment:prod), so the
+    # repository restriction is enforced one hop earlier, where GitHub's
+    # identity token is available.
   }
 }
 
@@ -103,7 +102,7 @@ resource "aws_iam_role" "this" {
   assume_role_policy   = data.aws_iam_policy_document.trust.json
   permissions_boundary = aws_iam_policy.boundary.arn
   max_session_duration = 3600
-  tags                 = var.tags
+  tags                 = merge(var.tags, { ManagedByRepository = var.github_repository })
 }
 
 resource "aws_iam_role_policy_attachment" "network_admin" {

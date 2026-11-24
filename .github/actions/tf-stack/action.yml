@@ -16,7 +16,6 @@ runs:
         role-to-assume: ${{ inputs.role }}
         aws-region: us-east-1
         role-session-name: gha-${{ inputs.stack }}-${{ inputs.instance }}
-        role-session-tags: true   # carries the repository tag the deployer role's trust policy requires
     - name: plan
       shell: bash
       working-directory: live/prod/${{ inputs.stack }}
