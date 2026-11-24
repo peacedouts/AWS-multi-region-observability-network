@@ -57,7 +57,7 @@ provider "aws" {
     tags = {
       Environment   = local.raw.environment
       System        = "central-observability"
-      Repository    = "multi-region-observability-network"
+      Repository    = "AWS-multi-region-observability-network"
       Stack         = "hub-${var.hub}"
       DataResidency = "none-no-event-data-at-rest"
       Owner         = "platform-infrastructure"

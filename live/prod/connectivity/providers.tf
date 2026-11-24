@@ -23,7 +23,7 @@ locals {
   tags = {
     Environment = local.raw.environment
     System      = "central-observability"
-    Repository  = "multi-region-observability-network"
+    Repository  = "AWS-multi-region-observability-network"
     Stack       = "connectivity"
     Owner       = "platform-infrastructure"
   }

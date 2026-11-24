@@ -101,7 +101,7 @@ output "base_tags" {
   value = {
     Environment = local.plan.environment
     System      = "central-observability"
-    Repository  = "multi-region-observability-network"
+    Repository  = "AWS-multi-region-observability-network"
   }
   description = "Tags every stack applies via provider default_tags."
 }
