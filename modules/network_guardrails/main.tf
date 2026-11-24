@@ -50,19 +50,32 @@ resource "aws_cloudwatch_event_rule" "out_of_band_network_change" {
   name        = "${var.name}-out-of-band-network-change"
   description = "Network change made outside the Terraform pipeline"
 
+  # Two cases, because "anything-but" only matches when the field exists:
+  #   1. assumed-role callers whose role is not a pipeline role
+  #   2. IAM users and root, which have no session issuer at all
   event_pattern = jsonencode({
     source        = ["aws.ec2"]
     "detail-type" = ["AWS API Call via CloudTrail"]
     detail = {
       eventSource = ["ec2.amazonaws.com"]
       eventName   = local.watched_actions
-      userIdentity = {
-        sessionContext = {
-          sessionIssuer = {
-            arn = [{ "anything-but" = var.pipeline_role_arns }]
+      "$or" = [
+        {
+          userIdentity = {
+            type = ["AssumedRole"]
+            sessionContext = {
+              sessionIssuer = {
+                arn = [{ "anything-but" = var.pipeline_role_arns }]
+              }
+            }
           }
-        }
-      }
+        },
+        {
+          userIdentity = {
+            type = ["IAMUser", "Root"]
+          }
+        },
+      ]
     }
   })
 

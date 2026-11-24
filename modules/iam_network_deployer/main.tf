@@ -116,10 +116,19 @@ data "aws_iam_policy_document" "extras" {
     sid = "MonitoringPlumbing"
     actions = [
       "logs:*", "cloudwatch:*", "events:*", "sns:*", "lambda:*", "config:PutConfigRule",
-      "config:DeleteConfigRule", "config:DescribeConfigRules", "kms:CreateKey", "kms:Describe*",
+      "config:DeleteConfigRule", "config:DescribeConfigRules", "config:TagResource",
+      "config:UntagResource", "config:ListTagsForResource", "kms:CreateKey", "kms:Describe*",
       "kms:Get*", "kms:List*", "kms:PutKeyPolicy", "kms:EnableKeyRotation", "kms:TagResource",
       "kms:ScheduleKeyDeletion", "kms:CreateGrant",
     ]
+    resources = ["*"]
+  }
+
+  statement {
+    # Every resource is tagged (provider default_tags), and peering options are
+    # set from both sides; don't depend on the managed policy covering these.
+    sid       = "NetworkTaggingAndPeeringOptions"
+    actions   = ["ec2:CreateTags", "ec2:DeleteTags", "ec2:ModifyVpcPeeringConnectionOptions", "ec2:DescribeVpcPeeringConnections"]
     resources = ["*"]
   }
 
@@ -128,7 +137,8 @@ data "aws_iam_policy_document" "extras" {
     actions = [
       "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy",
       "iam:GetRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PassRole",
-      "iam:TagRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:CreatePolicy",
+      "iam:TagRole", "iam:UntagRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole", "iam:UpdateAssumeRolePolicy", "iam:CreatePolicy",
       "iam:GetPolicy", "iam:GetPolicyVersion",
     ]
     resources = [

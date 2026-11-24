@@ -139,15 +139,16 @@ resource "aws_cloudwatch_log_group" "probe" {
 }
 
 resource "aws_lambda_function" "probe" {
-  function_name                  = "${var.name}-connectivity-probe"
-  role                           = aws_iam_role.probe.arn
-  runtime                        = "python3.12"
-  handler                        = "probe.handler"
-  filename                       = data.archive_file.probe.output_path
-  source_code_hash               = data.archive_file.probe.output_base64sha256
-  timeout                        = 60
-  memory_size                    = 256
-  reserved_concurrent_executions = 2
+  function_name    = "${var.name}-connectivity-probe"
+  role             = aws_iam_role.probe.arn
+  runtime          = "python3.12"
+  handler          = "probe.handler"
+  filename         = data.archive_file.probe.output_path
+  source_code_hash = data.archive_file.probe.output_base64sha256
+  timeout          = 60
+  memory_size      = 256
+  # No reserved concurrency: reserving any fails on new accounts with a low
+  # concurrency limit (AWS keeps 100 unreserved). Overlapping runs are harmless.
 
   vpc_config {
     subnet_ids         = var.subnet_ids
