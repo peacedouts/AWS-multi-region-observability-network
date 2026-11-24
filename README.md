@@ -56,6 +56,7 @@ docs/                      architecture, monitoring, deployment, ADRs
 
 ```bash
 make validate                                  # fmt + init(-backend=false) + validate every stack
+make lock                                      # (re)generate committed provider lock files for macOS + Linux
 make plan  STACK=spoke INSTANCE=eu             # needs AWS credentials for the CI role
 make apply STACK=connectivity INSTANCE=prod
 ```
