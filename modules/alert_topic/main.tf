@@ -84,7 +84,8 @@ resource "aws_sns_topic_policy" "this" {
 }
 
 resource "aws_sns_topic_subscription" "https" {
-  count = length(var.https_endpoints)
+  # The URLs are secret; how many there are is not. Terraform refuses sensitive values in count.
+  count = nonsensitive(length(var.https_endpoints))
 
   topic_arn              = aws_sns_topic.this.arn
   protocol               = "https"

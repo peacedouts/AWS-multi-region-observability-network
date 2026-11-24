@@ -38,7 +38,7 @@
   - `connectivity` is the only stack that spans accounts. That is intentional: both sides of a peering, and their routes, are reviewed as one diff and applied as one unit.
   - `observability` is separate so alarm tuning never risks a network change.
 - **State per instance** (`network/spoke/eu.tfstate`, …) keeps lock contention and blast radius small. State holds no event data. A residency-strict auditor could place each spoke's state in an in-jurisdiction bucket by changing its backend file only.
-- **Environments:** `live/nonprod/` mirrors `live/prod/` with its own `network-plan.yaml` (a different 10.x block, single NAT, one hub). Modules are promoted by git tag: `source = "git::…//modules/vpc?ref=v1.4.0"` once modules move to their own repo.
+- **Environments (not included in this repo):** a `live/nonprod/` tree would mirror `live/prod/` with its own `network-plan.yaml` (a different 10.x block, single NAT, one hub). Modules are promoted by git tag: `source = "git::…//modules/vpc?ref=v1.4.0"` once modules move to their own repo.
 
 ## 2. Deployment order
 

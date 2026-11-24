@@ -309,7 +309,15 @@ Giving the central API read access straight to each Aurora cluster would look si
 
 One hub cannot reach six nines (§8). Two hubs in different jurisdictions also give EU reviewers an EU processing path (`eu-west-1`) and everyone else a North American one (`us-east-1`). A third hub (e.g. `ap-southeast-2`) can be added when APAC review volume justifies it: one plan entry and four peering blocks.
 
-### 9.4 Global Accelerator rather than Route 53 latency/failover
+### 9.4 Hub front door: ALB + corporate IdP rather than API Gateway + Cognito
+
+The regional stacks use API Gateway with Cognito, and they keep it: that path serves devices and clients and is untouched. The hubs serve *internal staff* and deviate on purpose:
+
+- **Global Accelerator endpoints must be ALB, NLB, EC2 or Elastic IPs.** API Gateway can't be a GA endpoint, and putting GA in front of an ALB is what gives the hubs sub-minute, DNS-free failover (§8).
+- **Cognito user pools are regional.** A pool in one hub region would be a single point of failure for logins on both hubs. Staff already live in the corporate IdP (SSO, MFA, group-based entitlements), so the hubs trust that issuer directly and validate JWTs locally against cached keys. Each hub authenticates on its own.
+- WAF attaches to the ALB exactly as it does to API Gateway, so edge protection is unchanged.
+
+### 9.5 Global Accelerator rather than Route 53 latency/failover
 
 DNS failover is bounded by TTLs and resolver caching that we don't control. GA gives static anycast IPs, sub-minute endpoint draining and no client DNS caching problem. Route 53 still provides the per-hub fallback names the client SDK uses if GA itself is impaired.
 

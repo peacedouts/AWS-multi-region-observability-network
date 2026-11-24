@@ -35,6 +35,9 @@ jobs:
   # max-parallel: 1 within prod = one hub / one spoke at a time.
   vpcs:
     needs: static
+    # Deploy jobs need real accounts and the OIDC pipeline role. Until the repo
+    # variable AWS_DEPLOY_ENABLED is "true", only the static checks run.
+    if: vars.AWS_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 1
