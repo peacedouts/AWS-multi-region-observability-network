@@ -256,7 +256,7 @@ flowchart LR
     subgraph EACH["Every hub and regional account"]
         dep["terraform-network-deployer<br/>NetworkAdministrator + permissions boundary<br/>boundary DENIES the data plane"]
         fl["*-flow-logs role<br/>write one log group"]
-        pr["*-connectivity-probe role<br/>PutMetricData, one namespace"]
+        pr["*-connectivity-probe role<br/>assumes a write-only metrics role<br/>in the observability account"]
     end
     oidc -- "AssumeRoleWithWebIdentity" --> pipe
     pipe -- "sts:AssumeRole" --> dep
@@ -281,7 +281,7 @@ flowchart LR
 | Central API task role | Each hub account | Read its mTLS client cert, write metrics/logs | Assume any role in regional accounts. It holds **no** cross-account IAM to data. |
 | Regional gateway task role | Each regional account | `rds-db:connect` (IAM DB auth: reader user and a narrowly-scoped writer user for ratings), `s3:GetObject` on the event bucket (for presigning), write the access-audit log | Anything outside its region (SCP) |
 | `terraform-network-deployer` | Every account | Network + monitoring plumbing, assumed only by the CI pipeline role, which itself trusts only this repository's GitHub OIDC subject | Data plane: denied `rds:*`, `rds-db:connect`, `secretsmanager:GetSecretValue`, `kms:Decrypt` and event-bucket objects by permissions boundary |
-| Flow-log role, probe role | Per VPC / hub | Write logs / put metrics in one namespace | Anything else |
+| Flow-log role, probe role | Per VPC / hub | Write logs; the probe assumes a role in the observability account that can only publish metrics to one namespace | Anything else |
 | Break-glass network admin | Every account, MFA + approval | Emergency network change | Silently: every action raises an out-of-band-change alert |
 
 The trust model deliberately has **no cross-account IAM path from the center to regional data**. The hub reaches a region only through the gateway, as a certificate-authenticated client acting for a named human. The gateway owns its region's data-access credentials.

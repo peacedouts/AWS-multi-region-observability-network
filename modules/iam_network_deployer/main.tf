@@ -87,6 +87,7 @@ data "aws_iam_policy_document" "boundary" {
     not_resources = [
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*-flow-logs",
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*-connectivity-probe",
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*-probe-metrics-writer",
     ]
   }
 }
@@ -123,7 +124,7 @@ data "aws_iam_policy_document" "extras" {
   }
 
   statement {
-    sid = "ServiceRolesForFlowLogsAndProbe"
+    sid = "ServiceRolesForFlowLogsAndProbes"
     actions = [
       "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy",
       "iam:GetRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PassRole",
@@ -133,6 +134,7 @@ data "aws_iam_policy_document" "extras" {
     resources = [
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*-flow-logs",
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*-connectivity-probe",
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/*-probe-metrics-writer",
     ]
   }
 }

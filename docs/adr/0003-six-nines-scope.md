@@ -11,7 +11,7 @@ The brief asks for 99.9999% uptime: about 31.5 s of failure per year. Two facts 
 
 ## Decision
 
-- Run **two stateless, active-active hubs** in different regions (`us-east-1`, `eu-west-1`) behind Global Accelerator, peered to every region and to each other.
+- Run **two stateless, active-active hubs** in different regions (`us-east-1`, `eu-west-1`) and different AWS accounts, behind Global Accelerator, peered to every region and to each other.
 - Design so failures are **absorbed by retries** instead of detected and failed over: client retries on the other hub (idempotency keys on writes), hub→hub forwarding when one path to a region fails, GA draining in the background, one-hub-at-a-time deploys.
 - Define **two SLOs**:
   - *Platform availability* 99.9999%: requests for healthy regions succeed, measured at the edge after retries.

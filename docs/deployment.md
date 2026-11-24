@@ -35,8 +35,8 @@
 - **Stacks split by blast radius and ownership:**
   - `spoke` runs in a regional account only. It can't touch another jurisdiction (provider `allowed_account_ids` + region-lock SCP).
   - `hub` runs in one hub account only. Each hub has its own account.
-  - `connectivity` is the only stack that spans accounts. That is intentional: both sides of a peering, and their routes, are reviewed as one diff and applied as one unit.
-  - `observability` is separate so alarm tuning never risks a network change.
+  - `connectivity` spans every hub and regional account. That is intentional: both sides of a peering, and their routes, are reviewed as one diff and applied as one unit.
+  - `observability` spans two accounts: the probe runs in the hub account (inside the hub VPC, so it tests the real path), and the alarm matrix lives in the observability account. It's a separate stack so alarm tuning never risks a network change.
 - **State per instance** (`network/spoke/eu.tfstate`, …) keeps lock contention and blast radius small. State holds no event data. A residency-strict auditor could place each spoke's state in an in-jurisdiction bucket by changing its backend file only.
 - **Environments (not included in this repo):** a `live/nonprod/` tree would mirror `live/prod/` with its own `network-plan.yaml` (a different 10.x block, single NAT, one hub). Modules are promoted by git tag: `source = "git::…//modules/vpc?ref=v1.4.0"` once modules move to their own repo.
 
