@@ -47,17 +47,17 @@ A few decisions shape everything else:
 
 | Requirement | Where |
 |---|---|
-| Architecture diagram: VPC peering, security groups, IAM roles, data-flow paths | [Design doc](docs/architecture.md) §3.1 topology, §4 request flow, §5.2 routing and security groups, §7 IAM trust |
-| Secure cross-region connectivity that keeps data resident | Design doc §5 and §6, [ADR-0001](docs/adr/0001-connectivity-vpc-peering.md), [ADR-0002](docs/adr/0002-regional-gateway-not-direct-db.md) |
-| Central reads from every region, writes routed to the owning region | Design doc §4, ADR-0002 |
-| Redundancy, regional failures, 99.9999% | Design doc §8, [ADR-0003](docs/adr/0003-six-nines-scope.md) |
-| Inter-region latency | Design doc §11 |
+| Architecture diagram: VPC peering, security groups, IAM roles, data-flow paths | [Design doc](docs/architecture.md) sections 3.1 (topology), 4 (request flow), 5.2 (routing and security groups) and 7 (IAM trust) |
+| Secure cross-region connectivity that keeps data resident | Design doc sections 5 and 6, [ADR-0001](docs/adr/0001-connectivity-vpc-peering.md), [ADR-0002](docs/adr/0002-regional-gateway-not-direct-db.md) |
+| Central reads from every region, writes routed to the owning region | Design doc section 4, ADR-0002 |
+| Redundancy, regional failures, 99.9999% | Design doc section 8, [ADR-0003](docs/adr/0003-six-nines-scope.md) |
+| Inter-region latency | Design doc section 11 |
 | Terraform module structure, and how it's organized and deployed | `modules/`, `live/prod/`, [deployment.md](docs/deployment.md) |
 | VPC creation and VPC peering code, with an example of using it | `modules/vpc`, `modules/vpc_peering`, `live/prod/connectivity`, and the example below |
-| Why each connectivity option was chosen | Design doc §9, [`docs/adr/`](docs/adr) |
+| Why each connectivity option was chosen | Design doc section 9, [`docs/adr/`](docs/adr) |
 | Network monitoring: metrics and alerting | [monitoring.md](docs/monitoring.md), `modules/connectivity_probe`, `modules/connectivity_alerting` |
-| Security best practices and auditability | Design doc §7 and §10, `policies/scp/`, `modules/network_guardrails`, `modules/iam_network_deployer` |
-| Assumptions and scope | Design doc §2 and §13 |
+| Security best practices and auditability | Design doc sections 7 and 10, `policies/scp/`, `modules/network_guardrails`, `modules/iam_network_deployer` |
+| Assumptions and scope | Design doc sections 2 and 13 |
 
 ## Repository layout
 
@@ -126,7 +126,7 @@ module "peer_hub_euw1_spoke_eu" {
 
 ## Main assumptions
 
-The full list is in §2 of the design doc. The ones that matter most:
+The full list is in section 2 of the design doc. The ones that matter most:
 
 - The center can *process* regional data as it passes through, but can't *store* it. Whether staff in one country may view another country's data is a legal question. If the answer is no, the design can pin a jurisdiction to its own hub with a one-line change.
 - Reviewers are internal staff. They sign in through a Cognito user pool in each hub, both connected to the corporate identity provider, and their region permissions come from their groups there.

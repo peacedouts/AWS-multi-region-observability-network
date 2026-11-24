@@ -216,7 +216,7 @@ Cross-region peering does **not** support referencing security groups in the pee
 
 - **public tier:** internet-facing ALB (Global Accelerator endpoint, WAF attached) and NAT gateways, one per AZ.
 - **app tier:** central API tasks and the connectivity probe. Its route table carries the peering routes.
-- **No data tier.** The hub stores nothing. Session/workflow state, if needed later, is limited to non-PII identifiers (see §11).
+- **No data tier.** The hub stores nothing. Session/workflow state, if needed later, is limited to non-PII identifiers (see section 11).
 - **VPC endpoints** for STS, KMS, Logs, Monitoring, Secrets Manager, ECR and S3, so AWS API calls stay off the internet and in-region.
 
 ### 5.4 DNS and certificates
@@ -344,7 +344,7 @@ Giving the central API read access straight to each Aurora cluster would look si
 
 ### 9.3 Why two hubs, and why these regions
 
-One hub cannot reach six nines (§8). Two hubs in different jurisdictions also give EU reviewers an EU processing path (`eu-west-1`) and everyone else a North American one (`us-east-1`). A third hub (e.g. `ap-southeast-2`) can be added when APAC review volume justifies it: one plan entry and four peering blocks.
+One hub cannot reach six nines (see section 8). Two hubs in different jurisdictions also give EU reviewers an EU processing path (`eu-west-1`) and everyone else a North American one (`us-east-1`). A third hub (e.g. `ap-southeast-2`) can be added when APAC review volume justifies it: one plan entry and four peering blocks.
 
 ### 9.4 Front door and identity: what we kept from the regional stacks, and what we changed
 
@@ -354,7 +354,7 @@ The regional stacks use API Gateway secured by Cognito. The hubs **keep Cognito*
 
 - Both pools federate to the corporate IdP (SAML/OIDC), so staff still have one SSO login with MFA.
 - Both pools are configured identically by Terraform, including the mapping from IdP groups to a `regions` claim.
-- The central API and every regional gateway accept tokens from **either** pool (two trusted issuers, two cached key sets). A user signed in through hub A whose next request lands on hub B is served without a new sign-in. That is what keeps hub failover invisible (§8).
+- The central API and every regional gateway accept tokens from **either** pool (two trusted issuers, two cached key sets). A user signed in through hub A whose next request lands on hub B is served without a new sign-in. That is what keeps hub failover invisible (see section 8).
 - Tokens are validated **in the service**, not with the ALB's built-in Cognito sign-in action, which binds a session to one pool and would force a re-login on failover.
 - Refresh tokens are pool-specific. After a failover, the access token keeps working until it expires, then the client does a silent SSO redirect through the surviving hub's pool. The user sees a page reload at most, never an error.
 
