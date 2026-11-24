@@ -8,13 +8,17 @@
 
 Internal teams need one place to review and rate edge-device events. The event data (video and metadata) must stay in the regional AWS stacks (US, EU, CA, APAC), each in its own account and VPC.
 
-**The design in one paragraph.** Two stateless, active-active **hubs** (central API tiers in `us-east-1` and `eu-west-1`) sit behind AWS Global Accelerator. Each hub is joined to every regional **spoke** by an inter-region VPC peering connection, and the two hubs are peered with each other. Peering routes are subnet-precise: hubs can reach only a dedicated **interconnect tier** in each spoke. That tier hosts one front door per region, the **regional gateway**, an internal ALB with mutual TLS. The gateway is the only component that touches the regional database, and it writes an access audit record inside the region. Central components hold **no event data at rest**. Video bytes never pass through the center: the region issues a short-lived presigned URL and the reviewer downloads the clip directly from the regional bucket. Monitoring data (no PII) is centralized. A probe matrix measures every hub-to-region path, and correlated alarms page on impact rather than on raw signals.
+**The short version.** Two central **hubs** run the API, one in `us-east-1` and one in `eu-west-1`, both active at once behind AWS Global Accelerator. Each hub is connected to every regional **spoke** by VPC peering, and the two hubs are peered with each other as a fallback.
+
+The peering routes are deliberately narrow. A hub can only reach one small subnet tier in each region, the **interconnect tier**, which holds that region's **regional gateway**: an internal load balancer that requires mutual TLS. The gateway is the only thing that talks to the regional database, and it records every access inside the region.
+
+Nothing central stores event data. Video never passes through the hubs either: the region hands out a short-lived presigned URL and the reviewer downloads the clip straight from the regional bucket. Monitoring data has no personal information, so that part is centralized. A probe checks every hub-to-region path, and alerts are correlated so on-call is paged for real impact, not for every raw signal.
 
 | Decision | Choice | Main reason |
 |---|---|---|
 | Cross-region connectivity | Inter-region VPC peering, dual hub-and-spoke (8 + 1 connections) | Non-transitive by default (regions can never reach each other), no hourly or processing charges, no bandwidth bottleneck, no appliance in the path. See [ADR-0001](adr/0001-connectivity-vpc-peering.md). |
-| What the center can reach | A regional gateway in an interconnect subnet, never the database | Keeps credentials, schema, authorization and audit inside the jurisdiction. Routes writes by construction. See [ADR-0002](adr/0002-regional-gateway-not-direct-db.md). |
-| Availability model | Two active-active stateless hubs, failure-oblivious retries, per-region degradation | Six nines is only reachable if no single region, path or deploy can cause an error a user sees. See [ADR-0003](adr/0003-six-nines-scope.md). |
+| What the center can reach | A regional gateway in an interconnect subnet, never the database | Keeps credentials, schema, authorization and audit inside the jurisdiction. Writes always land in the right region, because each region's gateway can only write to its own database. See [ADR-0002](adr/0002-regional-gateway-not-direct-db.md). |
+| Availability model | Two stateless hubs serving at once, failures absorbed by retries, one region failing doesn't take down the others | Six nines is only reachable if no single region, path or deploy can cause an error a user sees. See [ADR-0003](adr/0003-six-nines-scope.md). |
 | Address plan | One reviewed `network-plan.yaml`; subnet CIDRs derived from it | Peering requires non-overlapping CIDRs, and every route and SG rule must be precise. See [ADR-0004](adr/0004-ip-address-plan.md). |
 | Identity | Amazon Cognito user pool per hub, both federated to the corporate IdP; tokens from either pool accepted by both hubs and every regional gateway | Reuses the regional stacks' Cognito/JWT model without making one region's pool a single point of failure. See [ADR-0005](adr/0005-identity-cognito-per-hub.md). |
 | Residency enforcement | SCP region-lock + no data at rest centrally + regional KMS + in-region audit | Residency is enforced by the platform, not by convention. |
@@ -222,7 +226,7 @@ Cross-region peering does **not** support referencing security groups in the pee
 
 ---
 
-## 6. Data residency: how the design keeps the promise
+## 6. Data residency: how the design keeps data where it belongs
 
 | Concern | Mechanism | Where it's enforced |
 |---|---|---|
@@ -290,13 +294,13 @@ The trust model deliberately has **no cross-account IAM path from the center to 
 
 **1. No single AWS service SLA gets there.** Published SLAs for the services in the path (ALB, ECS/Fargate, Global Accelerator, Aurora Multi-AZ) are in the 99.95–99.99% range, and they are financial commitments, not observed availability. Six nines has to come from **independent redundancy**: two hubs in different regions sharing no infrastructure except Global Accelerator, which itself has two anycast IPs on independent network zones. Clients also know a per-hub DNS fallback name.
 
-**2. Detection-based failover is too slow.** A health-check failover of about 30 seconds would spend the whole year's budget in one event. The platform must be **failure-oblivious**: both hubs serve at all times, and a failure turns into a *retry*, not an error:
+**2. Detection-based failover is too slow.** A health-check failover of about 30 seconds would spend the whole year's budget in one event. So failures have to be absorbed rather than detected and reacted to. Both hubs serve traffic at all times, and a failure turns into a *retry*, not an error the user sees:
 - Client SDK/UI retries idempotent calls on the other hub within a retry budget. Writes carry idempotency keys, so retries are safe.
 - A hub that cannot reach a region forwards that call to the other hub over the hub↔hub peering, before the alarm even fires.
 - Global Accelerator health checks drain an unhealthy hub for *new* connections in the background.
 - Deploys roll out **one hub at a time**, canaried, with automatic rollback, so a bad release can only ever affect half the capacity and is retried away.
 
-**3. Residency caps per-region availability, and that is the honest business trade-off.** EU data can't be replicated outside the EU, so EU data can never be more available than EU infrastructure. I propose two SLOs instead of one:
+**3. Residency limits how available each region's data can be, and that trade-off should be stated up front.** EU data can't be replicated outside the EU, so EU data can never be more available than EU infrastructure. I propose two SLOs instead of one:
 
 | SLO | Target | Measured as |
 |---|---|---|
@@ -391,7 +395,7 @@ Inter-region RTTs range from tens of milliseconds (US↔CA) to roughly 200+ ms (
 - **Per-region deadlines** from measured baselines, plus partial results for multi-region views.
 - **Video never crosses:** the largest payload goes straight from the regional bucket to the reviewer.
 
-**Hook for the data-plane session:** a global "review queue" across all regions would benefit from a central index of *non-PII pointers* (event ID, region, type, timestamp, review status), streamed from each region. That index must be cleared by the DPO first, and it changes nothing in this network design, because it would use the same gateways and paths.
+**Where the data side could go next:** a global "review queue" across all regions would benefit from a central index of *non-PII pointers* (event ID, region, type, timestamp, review status), streamed from each region. That index must be cleared by the DPO first, and it changes nothing in this network design, because it would use the same gateways and paths.
 
 ---
 

@@ -1,6 +1,6 @@
 # Monitoring and Alerting for Cross-Region Connectivity
 
-Companion to [architecture.md](architecture.md). Implemented in `modules/connectivity_probe`, `modules/connectivity_alerting`, `modules/network_guardrails` and the flow-log parts of `modules/vpc`.
+This goes with the [design doc](architecture.md). The code for it is in `modules/connectivity_probe`, `modules/connectivity_alerting`, `modules/network_guardrails` and the flow-log parts of `modules/vpc`.
 
 ## 1. Goals
 
@@ -8,7 +8,7 @@ Companion to [architecture.md](architecture.md). Implemented in `modules/connect
 2. **Localize** the failure domain automatically: one path, one hub, or one region. Each has a different owner and urgency.
 3. **Page only on impact.** A single path failure that the redundant hub absorbs is a ticket, not a 3 a.m. page.
 4. **Keep alerting alive through a region loss.** The monitoring must be more available than the thing it monitors.
-5. **Treat security-relevant network change as a signal**, not just reachability.
+5. **Treat unexpected network changes as a signal too**, not just whether traffic gets through.
 
 ## 2. The core problem: VPC peering has no metrics
 
@@ -45,7 +45,7 @@ This decomposition is the main debugging aid: an on-call engineer can tell withi
 - Request rate, error rate (5xx and timeouts), latency p50/p95/p99 per region
 - **Circuit-breaker state** per region (open = we stopped calling it)
 - **Cross-hub fallback count**: calls hub A forwarded to hub B. Non-zero means a path is down and redundancy is in use.
-- Client-side retries absorbed (from the SDK). This is how we see "failure-oblivious" working.
+- Client-side retries absorbed (from the SDK). This shows the retries doing their job: failures happened, but users didn't see them.
 
 ### 3.3 Endpoint health
 
@@ -54,7 +54,7 @@ This decomposition is the main debugging aid: an on-call engineer can tell withi
 | Regional gateway ALB | `HealthyHostCount`, `UnHealthyHostCount`, `TargetResponseTime`, `HTTPCode_ELB_5XX_Count`, `RejectedConnectionCount`, `ClientTLSNegotiationErrorCount` (mTLS failures) |
 | NAT gateways | `ErrorPortAllocation`, `PacketsDropCount`, `ConnectionAttemptCount` vs `ConnectionEstablishedCount` |
 | Global Accelerator | endpoint health state, `NewFlowCount`, `ProcessedBytesIn/Out` per endpoint group |
-| Probe Lambda | `Errors`, `Duration`, `Invocations`. Watch the watcher. |
+| Probe Lambda | `Errors`, `Duration`, `Invocations`, so a broken probe isn't mistaken for a broken network. |
 
 ### 3.4 Flow logs
 
@@ -73,7 +73,7 @@ This decomposition is the main debugging aid: an on-call engineer can tell withi
 
 ### 4.1 Principles
 
-- **Symptoms page, causes inform.** Pair alarms are raw signals with *no* notification actions. Only correlated alarms notify.
+- **Page on what users feel, not on every raw signal.** The per-path alarms don't notify anyone on their own. Only the correlated alarms built on top of them do.
 - **Every page is actionable and links a runbook** (failure domain, likely causes, first three commands).
 - **Severity follows user impact, not component importance.** A dead peering connection with the other hub serving is SEV3.
 - **Alerting is regionally redundant.** Both hubs' probes write metrics to *both* hub regions, and each region evaluates the full matrix. Both notify, and the incident tool de-duplicates on alarm name.
