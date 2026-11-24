@@ -103,4 +103,4 @@ module "peer_hub_euw1_spoke_eu" {
 
 ## Validation
 
-Validated with OpenTofu 1.10 and `hashicorp/aws` 5.100 (`terraform` ≥ 1.10 works the same way). The code was not applied to live accounts; account IDs in `network-plan.yaml` are placeholders.
+Validated with Terraform 1.10.5 and `hashicorp/aws` 5.100 (`make validate`); provider lock files cover macOS and Linux (`make lock`). The code was not applied to live accounts; account IDs in `network-plan.yaml` are placeholders.
