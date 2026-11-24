@@ -23,7 +23,7 @@
 │       ├── spoke/                   # one root, 4 instances: -var spoke=us|eu|ca|apac
 │       ├── hub/                     # one root, 2 instances: -var hub=use1|euw1
 │       ├── connectivity/            # all 9 peerings, one provider alias per account/region
-│       └── observability/           # per hub region: probe (hub account) + full alarm matrix (observability account)
+│       └── monitoring/              # per hub region: probe (hub account) + full alarm matrix (monitoring account)
 ├── policies/scp/                    # SCPs this design relies on (attached by the org pipeline)
 └── docs/
 ```
@@ -36,7 +36,7 @@
   - `spoke` runs in a regional account only. It can't touch another jurisdiction (provider `allowed_account_ids` + region-lock SCP).
   - `hub` runs in one hub account only. Each hub has its own account.
   - `connectivity` spans every hub and regional account. That is intentional: both sides of a peering, and their routes, are reviewed as one diff and applied as one unit.
-  - `observability` spans two accounts: the probe runs in the hub account (inside the hub VPC, so it tests the real path), and the alarm matrix lives in the observability account. It's a separate stack so alarm tuning never risks a network change.
+  - `monitoring` spans two accounts: the probe runs in the hub account (inside the hub VPC, so it tests the real path), and the alarm matrix lives in the monitoring account. It's a separate stack so alarm tuning never risks a network change.
 - **State per instance** (`network/spoke/eu.tfstate`, …) keeps lock contention and blast radius small. State holds no event data. A residency-strict auditor could place each spoke's state in an in-jurisdiction bucket by changing its backend file only.
 - **Environments (not included in this repo):** a `live/nonprod/` tree would mirror `live/prod/` with its own `network-plan.yaml` (a different 10.x block, single NAT, one hub). Modules are promoted by git tag: `source = "git::…//modules/vpc?ref=v1.4.0"` once modules move to their own repo.
 
@@ -48,7 +48,7 @@ flowchart LR
     B --> H["1 · hub × 2<br/>(parallel)"]
     S --> C["2 · connectivity<br/>9 peerings + routes"]
     H --> C
-    C --> O["3 · observability × 2<br/>probe + alarms"]
+    C --> O["3 · monitoring × 2<br/>probe + alarms"]
     O --> V["4 · verify<br/>Reachability Analyzer<br/>+ / − tests"]
 ```
 
@@ -64,7 +64,7 @@ cd live/prod/hub   && terraform init -reconfigure -backend-config=backends/use1.
 cd live/prod/connectivity && terraform init -backend-config=backends/prod.hcl && terraform apply
 
 # 3. monitoring (both hub regions)
-cd live/prod/observability && terraform init -reconfigure -backend-config=backends/use1.hcl && terraform apply -var hub=use1
+cd live/prod/monitoring && terraform init -reconfigure -backend-config=backends/use1.hcl && terraform apply -var hub=use1
 ```
 
 A `Makefile` wraps these (`make plan STACK=spoke INSTANCE=eu`).
@@ -85,7 +85,7 @@ A `Makefile` wraps these (`make plan STACK=spoke INSTANCE=eu`).
 2. Bootstrap the deployer role in the new account and attach the region-lock SCP.
 3. `apply` `spoke` with `-var spoke=uk`.
 4. Add `provider "aws" { alias = "spoke_uk" }` and a `peering-uk.tf` (two module blocks, copy of any other spoke file) in `connectivity`.
-5. Re-apply both `hub` instances (SGs pick up the new spoke from the plan automatically) and both `observability` instances (the probe target list and alarm matrix extend automatically).
+5. Re-apply both `hub` instances (SGs pick up the new spoke from the plan automatically) and both `monitoring` instances (the probe target list and alarm matrix extend automatically).
 
 **Pin a jurisdiction to its own hub** (if Legal requires in-jurisdiction processing): remove that spoke's peering module for the out-of-jurisdiction hub, and filter that hub out of `hub_source_cidrs` in `spoke/main.tf`. One reviewed PR.
 

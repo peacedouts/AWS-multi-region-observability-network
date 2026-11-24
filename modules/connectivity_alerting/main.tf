@@ -10,7 +10,7 @@
 #            path_degraded[h,r]     one path down, others fine  -> TICKET (redundant path is serving)
 # Layer 3  latency alarms     p99 TCP connect above baseline  -> TICKET
 #
-# Deployed into the OBSERVABILITY account. Every hub's probe writes there, in
+# Deployed into the MONITORING account. Every hub's probe writes there, in
 # every hub region, so each region computes
 # the same verdicts independently. Both regions notify; the incident tool
 # de-duplicates on alarm name. Losing a whole region never blinds alerting.

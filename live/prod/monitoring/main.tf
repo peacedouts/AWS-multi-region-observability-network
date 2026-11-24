@@ -1,5 +1,5 @@
 ###############################################################################
-# live/prod/observability  — one instance per hub region (use1, euw1)
+# live/prod/monitoring  — one instance per hub region (use1, euw1)
 #
 #   terraform init -backend-config=backends/use1.hcl
 #   terraform apply -var hub=use1
@@ -7,7 +7,7 @@
 # Two accounts are involved:
 #   * the HUB account runs this hub's connectivity probe, inside the hub VPC,
 #     so it tests the real network path;
-#   * the OBSERVABILITY account holds the probe metrics and the full
+#   * the MONITORING account holds the probe metrics and the full
 #     hub x region alarm matrix. Every hub's probe writes there (in both hub
 #     regions) through a write-only role, so alarms see the whole matrix even
 #     though each hub lives in its own account.
@@ -55,23 +55,23 @@ variable "ticket_endpoints" {
 }
 
 locals {
-  raw    = yamldecode(file("${path.module}/../network-plan.yaml"))
-  me     = local.raw.hubs[var.hub]
-  obs_id = local.raw.observability.account_id
-  prefix = "${local.raw.org_prefix}-hub-${var.hub}"
+  raw           = yamldecode(file("${path.module}/../network-plan.yaml"))
+  me            = local.raw.hubs[var.hub]
+  monitoring_id = local.raw.monitoring.account_id
+  prefix        = "${local.raw.org_prefix}-hub-${var.hub}"
 
   tags = {
     Environment = local.raw.environment
     System      = "central-observability"
     Repository  = "AWS-multi-region-observability-network"
-    Stack       = "observability-${var.hub}"
+    Stack       = "monitoring-${var.hub}"
     Owner       = "platform-infrastructure"
   }
 
   # Built from a name (not a resource reference) to avoid a cycle:
   # the probe needs this ARN, and the role's trust policy needs the probe's role.
   metric_writer_role_name = "${local.prefix}-probe-metrics-writer"
-  metric_writer_role_arn  = "arn:aws:iam::${local.obs_id}:role/${local.metric_writer_role_name}"
+  metric_writer_role_arn  = "arn:aws:iam::${local.monitoring_id}:role/${local.metric_writer_role_name}"
 }
 
 # Hub account: the probe runs in the hub VPC.
@@ -80,19 +80,19 @@ provider "aws" {
   allowed_account_ids = [local.me.account_id]
   assume_role {
     role_arn     = "arn:aws:iam::${local.me.account_id}:role/${local.raw.pipeline_role_name}"
-    session_name = "tf-observability-${var.hub}"
+    session_name = "tf-monitoring-${var.hub}"
   }
   default_tags { tags = local.tags }
 }
 
-# Observability account, same region: metrics, alarms and alert topics.
+# Monitoring account, same region: metrics, alarms and alert topics.
 provider "aws" {
-  alias               = "obs"
+  alias               = "monitoring"
   region              = local.me.region
-  allowed_account_ids = [local.obs_id]
+  allowed_account_ids = [local.monitoring_id]
   assume_role {
-    role_arn     = "arn:aws:iam::${local.obs_id}:role/${local.raw.pipeline_role_name}"
-    session_name = "tf-observability-${var.hub}"
+    role_arn     = "arn:aws:iam::${local.monitoring_id}:role/${local.raw.pipeline_role_name}"
+    session_name = "tf-monitoring-${var.hub}"
   }
   default_tags { tags = local.tags }
 }
@@ -129,7 +129,7 @@ module "probe" {
 }
 
 # -----------------------------------------------------------------------------
-# Observability account: write-only role for this hub's probe
+# Monitoring account: write-only role for this hub's probe
 # -----------------------------------------------------------------------------
 data "aws_iam_policy_document" "writer_trust" {
   statement {
@@ -154,38 +154,38 @@ data "aws_iam_policy_document" "writer" {
 }
 
 resource "aws_iam_role" "metric_writer" {
-  provider           = aws.obs
+  provider           = aws.monitoring
   name               = local.metric_writer_role_name
   assume_role_policy = data.aws_iam_policy_document.writer_trust.json
 }
 
 resource "aws_iam_role_policy" "metric_writer" {
-  provider = aws.obs
+  provider = aws.monitoring
   name     = "put-probe-metrics"
   role     = aws_iam_role.metric_writer.id
   policy   = data.aws_iam_policy_document.writer.json
 }
 
 # -----------------------------------------------------------------------------
-# Observability account: alert topics and the full alarm matrix
+# Monitoring account: alert topics and the full alarm matrix
 # -----------------------------------------------------------------------------
 module "page_topic" {
   source          = "../../../modules/alert_topic"
-  providers       = { aws = aws.obs }
+  providers       = { aws = aws.monitoring }
   name            = "network-connectivity-page"
   https_endpoints = var.page_endpoints
 }
 
 module "ticket_topic" {
   source          = "../../../modules/alert_topic"
-  providers       = { aws = aws.obs }
+  providers       = { aws = aws.monitoring }
   name            = "network-connectivity-ticket"
   https_endpoints = var.ticket_endpoints
 }
 
 module "alerting" {
   source    = "../../../modules/connectivity_alerting"
-  providers = { aws = aws.obs }
+  providers = { aws = aws.monitoring }
 
   hubs             = keys(local.raw.hubs)
   regions          = keys(local.raw.spokes)

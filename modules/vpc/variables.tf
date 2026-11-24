@@ -92,7 +92,7 @@ variable "endpoint_subnet_tier" {
 }
 
 variable "flow_log_retention_days" {
-  description = "Retention of VPC Flow Logs in CloudWatch. Flow logs carry no PII (assumption in docs) and are shared to the observability account via OAM."
+  description = "Retention of VPC Flow Logs in CloudWatch. Flow logs carry no PII (assumption in docs) and are shared to the monitoring account via OAM."
   type        = number
   default     = 90
 }

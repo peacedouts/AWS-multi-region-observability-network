@@ -21,7 +21,7 @@ terraform {
 
 variable "account" {
   type        = string
-  description = "Hub or spoke key from network-plan.yaml, or \"observability\"."
+  description = "Hub or spoke key from network-plan.yaml, or \"monitoring\"."
 }
 
 variable "pipeline_role_arn" {
@@ -35,7 +35,7 @@ locals {
   target = merge(
     local.raw.hubs,
     local.raw.spokes,
-    { observability = merge(local.raw.observability, { region = local.raw.hubs.use1.region }) },
+    { monitoring = merge(local.raw.monitoring, { region = local.raw.hubs.use1.region }) },
   )[var.account]
 }
 

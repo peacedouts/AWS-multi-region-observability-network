@@ -2,19 +2,17 @@
 
 This is the network layer for a central platform where internal teams review and rate events from edge devices. The catch is that the event data lives in separate regional AWS stacks (US, EU, CA and APAC) and has to stay there for data-residency reasons. So the question is how to give one central API access to all of it without moving any of it.
 
-If you only read one thing, read the [design doc](docs/architecture.md). The [monitoring doc](docs/monitoring.md) covers metrics and alerting, [deployment.md](docs/deployment.md) covers how the Terraform is organized and rolled out, and the [ADRs](docs/adr) record the main decisions.
-
 ## Scope and how to review this
 
 The brief asked for a network design, a basic Terraform module structure, VPC creation and peering code, and a monitoring approach. That core is here:
 
-- **[The design doc](docs/architecture.md)**, with the diagrams and the reasoning behind each decision
+- **[The design doc](docs/architecture.md)**, with the diagrams and the reasoning behind each decision. Start here. A glossary of terms and acronyms is at the end.
 - **[The monitoring doc](docs/monitoring.md)**, covering which metrics matter and how alerting works
 - **`modules/vpc`**, which builds each VPC with its subnet tiers and route tables
 - **`modules/vpc_peering`**, which connects two VPCs across accounts and regions, with routes on both sides
 - **`live/prod/connectivity`**, which uses that module to wire up all 9 peering connections
 
-Everything else is supporting work that shows how this would run in production, and it's safe to skim: the probe and alerting modules that implement the monitoring doc, the security groups, the SCPs and change guardrails, the deployer IAM role, the CI pipeline, the tests and the ADRs.
+Everything else is supporting work that shows how this would run in production, and it's safe to skim: the probe and alerting modules that implement the monitoring doc, the security groups, the SCPs and change guardrails, the deployer IAM role, the CI pipeline, the tests, [deployment.md](docs/deployment.md) and the [ADRs](docs/adr).
 
 ## How it works
 
@@ -32,14 +30,14 @@ flowchart LR
     AP --> APD[("APAC data")]
 ```
 
-Two central "hubs" run the API, one in `us-east-1` and one in `eu-west-1`, behind Global Accelerator. Each hub is peered with every regional VPC, and the two hubs are peered with each other as a fallback path.
+Two central "hubs" run the API, one in `us-east-1` and one in `eu-west-1`, behind Global Accelerator. They're named after their regions: `hub-use1` and `hub-euw1`. Each hub is peered with every regional VPC, and the two hubs are peered with each other as a fallback path.
 
 **Hubs and regions are separate layers.** The four regional stacks (US, EU, CA and APAC) are where the data lives, one per jurisdiction. The two hubs are where the central API runs, and they store no data, so their number isn't tied to the number of regions. There are two purely for redundancy, because no single hub can reach six nines. Each hub connects to all four regions, which is why this is "dual hub-and-spoke": 8 hub-to-region connections plus one between the hubs. The locations are deliberate: `us-east-1` sits close to both the US and Canadian stacks, and `eu-west-1` lets EU reviewers work on EU data without it leaving the EU. Adding a region adds a spoke, not a hub.
 
 A few decisions shape everything else:
 
 - **The regions can't talk to each other.** VPC peering isn't transitive, so even with a bad route, EU traffic can't reach the US VPC through a hub.
-- **The hubs never touch a database.** They can only reach a small gateway service in each region. The database subnets don't even have a route back to the hubs, and a network ACL blocks them as well.
+- **The hubs never touch a database.** They can only reach a small gateway service in each region. It's one codebase that the platform team deploys into each regional account, so the regional teams don't have to build it. The database subnets don't even have a route back to the hubs, and a network ACL blocks them as well.
 - **Nothing is stored centrally.** Video clips go from the regional S3 bucket straight to the reviewer through a short-lived presigned URL.
 - **Residency is enforced by AWS, not by convention.** SCPs lock each account to its own regions and block cross-region replication, and every data access is audited inside its own region.
 - **Six nines is split in two.** The platform targets 99.9999% by running both hubs at once and retrying on the other hub when one fails. Each region's data gets its own 99.99% target, because EU data can't be more available than the EU infrastructure it's required to live on. [ADR-0003](docs/adr/0003-six-nines-scope.md) explains the reasoning.
@@ -81,7 +79,7 @@ live/
     spoke/                 -var spoke=us|eu|ca|apac
     hub/                   -var hub=use1|euw1
     connectivity/          all 9 peering connections
-    observability/         -var hub=use1|euw1
+    monitoring/            -var hub=use1|euw1
 policies/scp/              region lock, residency guardrails, protection against network changes
 docs/                      design doc, monitoring, deployment, ADRs
 ```
@@ -137,9 +135,9 @@ The full list is in section 2 of the design doc. The ones that matter most:
 
 ## What's built and what's only designed
 
-**Built:** the networking modules and live stacks for 2 hubs, 4 regions and all the peering between them, plus security groups, network ACLs, flow logs, the probe, the correlated alerting, the change guardrails, the deployer IAM role and the SCPs.
+**Built and validated:** everything under `modules/` and `live/`, plus the SCPs.
 
-**Designed but not built** (described in the design doc): the central API and regional gateway services, Global Accelerator, the ALBs and WAF, the Cognito pools, Private CA and private DNS zones, and the cross-account monitoring setup and dashboards.
+**Designed only** (described in the design doc): the central API and regional gateway services, Global Accelerator, the ALBs and WAF, the Cognito pools, Private CA, private DNS zones, and the cross-account dashboards.
 
 ## Validation
 

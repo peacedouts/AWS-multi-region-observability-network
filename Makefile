@@ -7,12 +7,12 @@
 TF       ?= terraform
 STACK    ?=
 INSTANCE ?=
-ROOTS    := live/prod/spoke live/prod/hub live/prod/connectivity live/prod/observability live/bootstrap/deployer-role
+ROOTS    := live/prod/spoke live/prod/hub live/prod/connectivity live/prod/monitoring live/bootstrap/deployer-role
 
-# hub/observability take -var hub=, spoke takes -var spoke=, connectivity takes none
+# hub/monitoring take -var hub=, spoke takes -var spoke=, connectivity takes none
 VAR_spoke         = -var spoke=$(INSTANCE)
 VAR_hub           = -var hub=$(INSTANCE)
-VAR_observability = -var hub=$(INSTANCE)
+VAR_monitoring = -var hub=$(INSTANCE)
 VAR_connectivity  =
 
 # Lock files are committed. Record hashes for every platform that runs

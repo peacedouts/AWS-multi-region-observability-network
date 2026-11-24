@@ -34,7 +34,7 @@ jobs:
           # requests from shared runners hit GitHub's rate limit.
           GITHUB_TOKEN: ${{ github.token }}
 
-  # Dependency order: spokes + hubs -> connectivity -> observability.
+  # Dependency order: spokes + hubs -> connectivity -> monitoring.
   # max-parallel: 1 within prod = one hub / one spoke at a time.
   vpcs:
     needs: static
@@ -79,15 +79,15 @@ jobs:
           apply: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
 
 
-  observability:
+  monitoring:
     needs: connectivity
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 1
       matrix:
         include:
-          - { stack: observability, instance: use1 }
-          - { stack: observability, instance: euw1 }
+          - { stack: monitoring, instance: use1 }
+          - { stack: monitoring, instance: euw1 }
     environment: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'prod' || 'plan-only' }}
     steps:
       - uses: actions/checkout@v4

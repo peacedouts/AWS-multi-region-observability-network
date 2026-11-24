@@ -46,9 +46,9 @@ hubs:
     cidr: 10.11.0.0/16
     azs: [eu-west-1a, eu-west-1b, eu-west-1c]
 
-# Observability account: probe metrics and the alarm matrix live here, in BOTH
+# Monitoring account: probe metrics and the alarm matrix live here, in BOTH
 # hub regions, so alerting sees every hub's results and survives losing a region.
-observability:
+monitoring:
   account_id: "777777777777"
 
 # Regional (data-resident) stacks: one AWS account per jurisdiction.

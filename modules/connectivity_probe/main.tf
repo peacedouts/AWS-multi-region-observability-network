@@ -50,7 +50,7 @@ variable "mtls_secret_arn" {
 variable "metric_role_arn" {
   type        = string
   default     = ""
-  description = "Write-only role in the observability account to assume for PutMetricData. Empty = write to this account."
+  description = "Write-only role in the monitoring account to assume for PutMetricData. Empty = write to this account."
 }
 
 variable "probe_interval_seconds" {
@@ -110,7 +110,7 @@ data "aws_iam_policy_document" "probe" {
   dynamic "statement" {
     for_each = var.metric_role_arn == "" ? [] : [1]
     content {
-      sid       = "AssumeObservabilityMetricsWriter"
+      sid       = "AssumeMonitoringMetricsWriter"
       actions   = ["sts:AssumeRole"]
       resources = [var.metric_role_arn]
     }
@@ -193,7 +193,7 @@ resource "aws_lambda_permission" "events" {
 
 output "role_arn" {
   value       = aws_iam_role.probe.arn
-  description = "Probe execution role (trusted by the observability account's metrics-writer role)."
+  description = "Probe execution role (trusted by the monitoring account's metrics-writer role)."
 }
 
 output "function_name" {

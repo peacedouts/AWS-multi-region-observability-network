@@ -88,7 +88,7 @@ flowchart TB
     api2 -. peering .-> gwca
     api2 -. peering .-> gwap
 
-    subgraph OBS["Observability account"]
+    subgraph OBS["Monitoring account"]
         cw["CloudWatch cross-account observability (OAM)<br/>Managed Grafana · alarms in BOTH hub regions"]
     end
     CENTRAL -. "metrics / logs (no PII)" .-> OBS
@@ -105,7 +105,7 @@ There are no spoke-to-spoke connections, and peering is not transitive. EU traff
 | OU | Accounts | Notes |
 |---|---|---|
 | Security | log-archive, audit | Org CloudTrail (S3 Object Lock), Config aggregator, GuardDuty/Security Hub delegated admin |
-| Infrastructure | hub-use1, hub-euw1 (one account each), observability, tooling (CI/OIDC, state) | Hubs hold no event data. Separate hub accounts mean an IAM mistake, a leaked credential or an exhausted service quota can only affect one hub. |
+| Infrastructure | hub-use1, hub-euw1 (one account each), monitoring, tooling (CI/OIDC, state) | Hubs hold no event data. Separate hub accounts mean an IAM mistake, a leaked credential or an exhausted service quota can only affect one hub. |
 | Regional Workloads | us-prod, eu-prod, ca-prod, apac-prod (+ non-prod twins) | Region-lock SCP per account, residency guardrail SCPs |
 
 Every account boundary is also a blast-radius and audit boundary. An auditor for the EU can be given read access to the EU account alone and see every access to EU data in it.
@@ -256,7 +256,7 @@ flowchart LR
     subgraph EACH["Every hub and regional account"]
         dep["terraform-network-deployer<br/>NetworkAdministrator + permissions boundary<br/>boundary DENIES the data plane"]
         fl["*-flow-logs role<br/>write one log group"]
-        pr["*-connectivity-probe role<br/>assumes a write-only metrics role<br/>in the observability account"]
+        pr["*-connectivity-probe role<br/>assumes a write-only metrics role<br/>in the monitoring account"]
     end
     oidc -- "AssumeRoleWithWebIdentity" --> pipe
     pipe -- "sts:AssumeRole" --> dep
@@ -281,7 +281,7 @@ flowchart LR
 | Central API task role | Each hub account | Read its mTLS client cert, write metrics/logs | Assume any role in regional accounts. It holds **no** cross-account IAM to data. |
 | Regional gateway task role | Each regional account | `rds-db:connect` (IAM DB auth: reader user and a narrowly-scoped writer user for ratings), `s3:GetObject` on the event bucket (for presigning), write the access-audit log | Anything outside its region (SCP) |
 | `terraform-network-deployer` | Every account | Network + monitoring plumbing, assumed only by the CI pipeline role, which itself trusts only this repository's GitHub OIDC subject | Data plane: denied `rds:*`, `rds-db:connect`, `secretsmanager:GetSecretValue`, `kms:Decrypt` and event-bucket objects by permissions boundary |
-| Flow-log role, probe role | Per VPC / hub | Write logs; the probe assumes a role in the observability account that can only publish metrics to one namespace | Anything else |
+| Flow-log role, probe role | Per VPC / hub | Write logs; the probe assumes a role in the monitoring account that can only publish metrics to one namespace | Anything else |
 | Break-glass network admin | Every account, MFA + approval | Emergency network change | Silently: every action raises an out-of-band-change alert |
 
 The trust model deliberately has **no cross-account IAM path from the center to regional data**. The hub reaches a region only through the gateway, as a certificate-authenticated client acting for a named human. The gateway owns its region's data-access credentials.
@@ -341,6 +341,8 @@ The **interconnect tier is the contract**, not the peering. A spoke can move to 
 ### 9.2 Regional gateway instead of direct database access
 
 Giving the central API read access straight to each Aurora cluster would look simpler, but it would spread four regions' credentials, schemas and authorization logic into the center. Writes would also become a convention ("please use the right endpoint") rather than a property of the system. The gateway keeps those things in the region. It enforces field-level filtering, records the audit, chooses reader or writer, issues presigned URLs, and exposes a small coarse-grained API suited to high-latency links.
+
+**Who owns it:** the gateway is new; it isn't part of the existing regional stacks. It's one codebase, owned by the central platform team and deployed into each regional account by the same pipeline, with per-region configuration generated from `network-plan.yaml`. The regional teams don't build or run it, but it runs inside their account, so its access to their database is visible to them and audited there.
 
 ### 9.3 Why two hubs, and why these regions
 
@@ -418,3 +420,28 @@ Inter-region RTTs range from tens of milliseconds (US↔CA) to roughly 200+ ms (
 | Probe-based detection has blind spots | Combine with real-traffic RED metrics and a negative reachability test after every apply (see monitoring doc) |
 
 **Implemented in this repo vs designed only.** Implemented: VPC module (tiers, per-tier routing, NAT, endpoints, NACL, flow logs), cross-account cross-region peering module, SG modules, connectivity probe, correlated alerting, change guardrails, deployer IAM role with boundary, SCPs, the CIDR-overlap check and its tests, live stacks for 2 hubs, 4 spokes and the full peering mesh. Designed only: central API and regional gateway services, GA/ALB/WAF, the per-hub Cognito pools, Private CA, private hosted zones, OAM wiring, Grafana dashboards.
+
+---
+
+## 14. Glossary
+
+| Term | Meaning here |
+|---|---|
+| **Hub** | One of the two central API deployments (`hub-use1` in us-east-1, `hub-euw1` in eu-west-1). Stores no event data. |
+| **Spoke** | A regional stack (US, EU, CA, APAC) where the event data lives and must stay. |
+| **Interconnect tier** | The one subnet tier in each spoke that hubs can route to. It holds only the regional gateway's load balancer. |
+| **Regional gateway** | The small service in each region that the hubs call. The only thing that touches that region's database. |
+| **Monitoring account** | The AWS account holding the network monitoring: probe metrics, the alarm matrix and dashboards. Not to be confused with the observability *platform*, which is the product reviewers use. |
+| **ADR** | Architecture decision record: a short document recording one decision and why (`docs/adr/`). |
+| **DPO** | Data protection officer: the person accountable for data-protection compliance in a jurisdiction. |
+| **GA** | AWS Global Accelerator: static anycast IPs in front of both hubs. |
+| **IPAM** | AWS VPC IP Address Manager: allocates IP ranges centrally so they never overlap. |
+| **mTLS** | Mutual TLS: both sides present certificates, so the gateway knows the caller is a hub. |
+| **NACL** | Network ACL: a stateless subnet-level firewall, used here as a backstop behind security groups. |
+| **OAM** | CloudWatch cross-account observability: lets one account view other accounts' metrics and logs. |
+| **PII** | Personally identifiable information. |
+| **RED** | Rate, errors, duration: the three core metrics for any request-serving service. |
+| **RTT** | Round-trip time between two regions. |
+| **SCP** | Service control policy: an AWS Organizations rule that limits what any role in an account can do, even an admin. |
+| **SLO** | Service level objective: the availability or latency target a service is measured against. |
+| **TTFB** | Time to first byte: how long until a response starts arriving. |

@@ -9,7 +9,7 @@ Every PROBE_INTERVAL seconds for ~one invocation window it measures, per target:
     DNS resolution, TCP connect, TLS handshake, time-to-first-byte, success.
 
 Metrics are high-resolution (1s storage) and are DUAL-WRITTEN to every region
-in METRIC_REGIONS, in the observability account (via METRIC_ROLE_ARN). Every
+in METRIC_REGIONS, in the monitoring account (via METRIC_ROLE_ARN). Every
 hub's probe lands in the same account, so each region holds the full
 hub x region matrix and evaluates the correlation alarms on its own: alerting
 has no single-region dependency.
@@ -32,13 +32,13 @@ INTERVAL = int(os.environ.get("PROBE_INTERVAL_SECONDS", "10"))
 WINDOW = int(os.environ.get("PROBE_WINDOW_SECONDS", "50"))
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT_SECONDS", "3"))
 MTLS_SECRET_ARN = os.environ.get("MTLS_SECRET_ARN", "")
-METRIC_ROLE_ARN = os.environ.get("METRIC_ROLE_ARN", "")  # write-only role in the observability account
+METRIC_ROLE_ARN = os.environ.get("METRIC_ROLE_ARN", "")  # write-only role in the monitoring account
 
 _ssl_ctx = None
 
 
 def _metric_clients():
-    """CloudWatch clients for every metrics region, in the observability account when a role is set.
+    """CloudWatch clients for every metrics region, in the monitoring account when a role is set.
     Called once per invocation so the assumed-role credentials never go stale."""
     creds = {}
     if METRIC_ROLE_ARN:

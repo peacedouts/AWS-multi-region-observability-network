@@ -1,7 +1,7 @@
 name: tf-stack
 description: Plan (and on main, apply) one instance of one live stack
 inputs:
-  stack:    { required: true, description: "spoke | hub | connectivity | observability" }
+  stack:    { required: true, description: "spoke | hub | connectivity | monitoring" }
   instance: { required: true, description: "us | eu | ca | apac | use1 | euw1 | prod" }
   apply:    { required: false, default: "false", description: "Apply the saved plan" }
   role:     { required: true, description: "Pipeline role to assume via OIDC" }
@@ -22,7 +22,7 @@ runs:
       run: |
         case "${{ inputs.stack }}" in
           spoke) VARS="-var spoke=${{ inputs.instance }}" ;;
-          hub|observability) VARS="-var hub=${{ inputs.instance }}" ;;
+          hub|monitoring) VARS="-var hub=${{ inputs.instance }}" ;;
           *) VARS="" ;;
         esac
         terraform init -input=false -reconfigure -backend-config=backends/${{ inputs.instance }}.hcl

@@ -34,7 +34,7 @@ locals {
   all_accounts = distinct(concat(
     [for h in local.plan.hubs : h.account_id],
     [for s in local.plan.spokes : s.account_id],
-    compact([try(local.plan.observability.account_id, null)]),
+    compact([try(local.plan.monitoring.account_id, null)]),
   ))
 }
 
