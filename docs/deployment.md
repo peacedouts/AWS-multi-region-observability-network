@@ -23,7 +23,7 @@
 │       ├── spoke/                   # one root, 4 instances: -var spoke=us|eu|ca|apac
 │       ├── hub/                     # one root, 2 instances: -var hub=use1|euw1
 │       ├── connectivity/            # all 9 peerings, one provider alias per account/region
-│       └── observability/           # per hub region: probe + full alarm matrix
+│       └── observability/           # per hub region: probe (hub account) + full alarm matrix (observability account)
 ├── policies/scp/                    # SCPs this design relies on (attached by the org pipeline)
 └── docs/
 ```
@@ -34,7 +34,7 @@
 - **One root per *kind* of stack, many instances.** `spoke/` is applied four times with different `-var spoke=…` and backend keys. The four regions can't drift apart in shape, and adding a region adds no code to `spoke/`.
 - **Stacks split by blast radius and ownership:**
   - `spoke` runs in a regional account only. It can't touch another jurisdiction (provider `allowed_account_ids` + region-lock SCP).
-  - `hub` runs in the central account only.
+  - `hub` runs in one hub account only. Each hub has its own account.
   - `connectivity` is the only stack that spans accounts. That is intentional: both sides of a peering, and their routes, are reviewed as one diff and applied as one unit.
   - `observability` is separate so alarm tuning never risks a network change.
 - **State per instance** (`network/spoke/eu.tfstate`, …) keeps lock contention and blast radius small. State holds no event data. A residency-strict auditor could place each spoke's state in an in-jurisdiction bucket by changing its backend file only.

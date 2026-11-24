@@ -34,7 +34,42 @@ locals {
   all_accounts = distinct(concat(
     [for h in local.plan.hubs : h.account_id],
     [for s in local.plan.spokes : s.account_id],
+    compact([try(local.plan.observability.account_id, null)]),
   ))
+}
+
+# -----------------------------------------------------------------------------
+# Guard-rail: VPC CIDRs must not overlap (VPC peering can't route overlapping
+# ranges). Two ranges overlap when their network addresses match at the shorter
+# of the two prefix lengths. Checked as an output precondition, so EVERY stack
+# that reads the plan fails its plan if someone introduces an overlap.
+# -----------------------------------------------------------------------------
+locals {
+  vpc_cidrs = merge(
+    { for k, v in local.plan.hubs : "hub-${k}" => v.cidr },
+    { for k, v in local.plan.spokes : "spoke-${k}" => v.cidr },
+  )
+  vpc_names  = sort(keys(local.vpc_cidrs))
+  vpc_prefix = { for k, c in local.vpc_cidrs : k => tonumber(split("/", c)[1]) }
+
+  cidr_overlaps = flatten([
+    for i, a in local.vpc_names : [
+      for b in slice(local.vpc_names, i + 1, length(local.vpc_names)) :
+      "${a} (${local.vpc_cidrs[a]}) overlaps ${b} (${local.vpc_cidrs[b]})"
+      if cidrhost("${cidrhost(local.vpc_cidrs[a], 0)}/${min(local.vpc_prefix[a], local.vpc_prefix[b])}", 0)
+      == cidrhost("${cidrhost(local.vpc_cidrs[b], 0)}/${min(local.vpc_prefix[a], local.vpc_prefix[b])}", 0)
+    ]
+  ])
+}
+
+output "vpc_cidrs" {
+  value       = local.vpc_cidrs
+  description = "Every VPC's CIDR, keyed hub-<name> / spoke-<name>. Fails the plan if any two overlap."
+
+  precondition {
+    condition     = length(local.cidr_overlaps) == 0
+    error_message = "Overlapping VPC CIDRs in the network plan (VPC peering cannot route these): ${join("; ", local.cidr_overlaps)}"
+  }
 }
 
 output "raw" {

@@ -4,9 +4,13 @@
 #   terraform init -backend-config=backends/use1.hcl
 #   terraform apply -var hub=use1
 #
-# Deploys this hub's connectivity probe and the FULL hub x region alarm matrix
-# (both hubs' probes dual-write metrics here), so either region alone can
-# detect and page on any connectivity failure.
+# Two accounts are involved:
+#   * the HUB account runs this hub's connectivity probe, inside the hub VPC,
+#     so it tests the real network path;
+#   * the OBSERVABILITY account holds the probe metrics and the full
+#     hub x region alarm matrix. Every hub's probe writes there (in both hub
+#     regions) through a write-only role, so alarms see the whole matrix even
+#     though each hub lives in its own account.
 ###############################################################################
 
 terraform {
@@ -36,11 +40,41 @@ variable "mtls_secret_arn" {
   description = "Secret with the probe's mTLS client certificate (issued by AWS Private CA)."
 }
 
-locals {
-  raw = yamldecode(file("${path.module}/../network-plan.yaml"))
-  me  = local.raw.hubs[var.hub]
+variable "page_endpoints" {
+  type        = list(string)
+  default     = []
+  sensitive   = true
+  description = "Incident-tool HTTPS integration URL(s) for pages."
 }
 
+variable "ticket_endpoints" {
+  type        = list(string)
+  default     = []
+  sensitive   = true
+  description = "Incident-tool HTTPS integration URL(s) for tickets."
+}
+
+locals {
+  raw    = yamldecode(file("${path.module}/../network-plan.yaml"))
+  me     = local.raw.hubs[var.hub]
+  obs_id = local.raw.observability.account_id
+  prefix = "${local.raw.org_prefix}-hub-${var.hub}"
+
+  tags = {
+    Environment = local.raw.environment
+    System      = "central-observability"
+    Repository  = "multi-region-observability-network"
+    Stack       = "observability-${var.hub}"
+    Owner       = "platform-infrastructure"
+  }
+
+  # Built from a name (not a resource reference) to avoid a cycle:
+  # the probe needs this ARN, and the role's trust policy needs the probe's role.
+  metric_writer_role_name = "${local.prefix}-probe-metrics-writer"
+  metric_writer_role_arn  = "arn:aws:iam::${local.obs_id}:role/${local.metric_writer_role_name}"
+}
+
+# Hub account: the probe runs in the hub VPC.
 provider "aws" {
   region              = local.me.region
   allowed_account_ids = [local.me.account_id]
@@ -48,15 +82,19 @@ provider "aws" {
     role_arn     = "arn:aws:iam::${local.me.account_id}:role/${local.raw.pipeline_role_name}"
     session_name = "tf-observability-${var.hub}"
   }
-  default_tags {
-    tags = {
-      Environment = local.raw.environment
-      System      = "central-observability"
-      Repository  = "multi-region-observability-network"
-      Stack       = "observability-${var.hub}"
-      Owner       = "platform-infrastructure"
-    }
+  default_tags { tags = local.tags }
+}
+
+# Observability account, same region: metrics, alarms and alert topics.
+provider "aws" {
+  alias               = "obs"
+  region              = local.me.region
+  allowed_account_ids = [local.obs_id]
+  assume_role {
+    role_arn     = "arn:aws:iam::${local.obs_id}:role/${local.raw.pipeline_role_name}"
+    session_name = "tf-observability-${var.hub}"
   }
+  default_tags { tags = local.tags }
 }
 
 data "terraform_remote_state" "hub" {
@@ -72,29 +110,88 @@ locals {
   hub = data.terraform_remote_state.hub.outputs
 }
 
+# -----------------------------------------------------------------------------
+# Hub account: the probe
+# -----------------------------------------------------------------------------
 module "probe" {
   source = "../../../modules/connectivity_probe"
 
-  name       = "${local.raw.org_prefix}-hub-${var.hub}"
+  name       = local.prefix
   source_hub = var.hub
   targets = [
     for k, s in local.raw.spokes : { region = k, host = s.gateway_fqdn }
   ]
   metric_regions     = distinct([for h in local.raw.hubs : h.region])
+  metric_role_arn    = local.metric_writer_role_arn
   subnet_ids         = local.hub.app_subnet_ids
   security_group_ids = [local.hub.central_api_security_group_id]
   mtls_secret_arn    = var.mtls_secret_arn
 }
 
-module "alerting" {
-  source = "../../../modules/connectivity_alerting"
+# -----------------------------------------------------------------------------
+# Observability account: write-only role for this hub's probe
+# -----------------------------------------------------------------------------
+data "aws_iam_policy_document" "writer_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "AWS"
+      identifiers = [module.probe.role_arn]
+    }
+  }
+}
 
-  hubs                      = keys(local.raw.hubs)
-  regions                   = keys(local.raw.spokes)
-  page_topic_arn            = local.hub.page_topic_arn
-  ticket_topic_arn          = local.hub.ticket_topic_arn
-  runbook_base_url          = local.raw.runbook_base_url
-  local_probe_function_name = module.probe.function_name
+data "aws_iam_policy_document" "writer" {
+  statement {
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"] # PutMetricData has no resource-level permissions
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["Network/CrossRegion"]
+    }
+  }
+}
+
+resource "aws_iam_role" "metric_writer" {
+  provider           = aws.obs
+  name               = local.metric_writer_role_name
+  assume_role_policy = data.aws_iam_policy_document.writer_trust.json
+}
+
+resource "aws_iam_role_policy" "metric_writer" {
+  provider = aws.obs
+  name     = "put-probe-metrics"
+  role     = aws_iam_role.metric_writer.id
+  policy   = data.aws_iam_policy_document.writer.json
+}
+
+# -----------------------------------------------------------------------------
+# Observability account: alert topics and the full alarm matrix
+# -----------------------------------------------------------------------------
+module "page_topic" {
+  source          = "../../../modules/alert_topic"
+  providers       = { aws = aws.obs }
+  name            = "network-connectivity-page"
+  https_endpoints = var.page_endpoints
+}
+
+module "ticket_topic" {
+  source          = "../../../modules/alert_topic"
+  providers       = { aws = aws.obs }
+  name            = "network-connectivity-ticket"
+  https_endpoints = var.ticket_endpoints
+}
+
+module "alerting" {
+  source    = "../../../modules/connectivity_alerting"
+  providers = { aws = aws.obs }
+
+  hubs             = keys(local.raw.hubs)
+  regions          = keys(local.raw.spokes)
+  page_topic_arn   = module.page_topic.topic_arn
+  ticket_topic_arn = module.ticket_topic.topic_arn
+  runbook_base_url = local.raw.runbook_base_url
 
   # Set from two weeks of measured baseline (~1.5x observed p99). Illustrative values.
   latency_p99_threshold_ms = {
@@ -107,4 +204,20 @@ module "alerting" {
     "euw1|eu"   = 60
     "euw1|apac" = 450
   }
+}
+
+# Probe Lambda errors are a hub-account metric, so this alarm lives with the probe.
+resource "aws_cloudwatch_metric_alarm" "probe_errors" {
+  alarm_name          = "net-SEV3-probe-${module.probe.function_name}-errors"
+  alarm_description   = "Connectivity probe Lambda erroring or not running. Until fixed, hub_isolated alarms for ${var.hub} may be false positives. Runbook: ${local.raw.runbook_base_url}/net-probe"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  dimensions          = { FunctionName = module.probe.function_name }
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 3
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = [local.hub.ticket_topic_arn]
 }

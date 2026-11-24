@@ -76,7 +76,7 @@ This decomposition is the main debugging aid: an on-call engineer can tell withi
 - **Page on what users feel, not on every raw signal.** The per-path alarms don't notify anyone on their own. Only the correlated alarms built on top of them do.
 - **Every page is actionable and links a runbook** (failure domain, likely causes, first three commands).
 - **Severity follows user impact, not component importance.** A dead peering connection with the other hub serving is SEV3.
-- **Alerting is regionally redundant.** Both hubs' probes write metrics to *both* hub regions, and each region evaluates the full matrix. Both notify, and the incident tool de-duplicates on alarm name.
+- **Alerting is regionally redundant.** Both hubs' probes write their metrics into the observability account in *both* hub regions, through a write-only role. Each region then evaluates the full matrix. Both notify, and the incident tool de-duplicates on alarm name.
 
 ### 4.2 Correlation matrix
 
@@ -135,7 +135,7 @@ The probe tells us the network is broken. The SLO tells us whether users are hur
 
 ## 5. Where monitoring data lives
 
-- **Probe metrics:** dual-written into both hub regions (central platform account). No single-region dependency for detection or paging.
+- **Probe metrics:** written by every hub's probe into the observability account, in both hub regions. Alarms see the whole matrix even though each hub has its own account, and neither detection nor paging depends on a single region.
 - **Everything else:** CloudWatch **cross-account observability (OAM)**. Every account links to a sink in the observability account, so metrics, logs and traces from all regions appear in one console and in **Amazon Managed Grafana** without copying raw data around. Per the brief, monitoring data contains no PII. Services log event IDs, never event payloads or video URLs, enforced by a log-scrubbing test in CI.
 - **Retention:** 90 days for flow logs in CloudWatch (hot), with long-term copies in the in-region log-archive bucket for audit.
 

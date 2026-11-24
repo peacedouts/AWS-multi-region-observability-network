@@ -26,6 +26,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: "${{ env.TF_VERSION }}" }
       - run: make validate
+      - run: make test
       - uses: terraform-linters/setup-tflint@v4
       - run: tflint --init && tflint --recursive
       - uses: bridgecrewio/checkov-action@v12

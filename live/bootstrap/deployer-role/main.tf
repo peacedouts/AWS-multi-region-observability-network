@@ -21,7 +21,7 @@ terraform {
 
 variable "account" {
   type        = string
-  description = "Hub or spoke key from network-plan.yaml."
+  description = "Hub or spoke key from network-plan.yaml, or \"observability\"."
 }
 
 variable "pipeline_role_arn" {
@@ -31,8 +31,12 @@ variable "pipeline_role_arn" {
 }
 
 locals {
-  raw    = yamldecode(file("${path.module}/../../prod/network-plan.yaml"))
-  target = merge(local.raw.hubs, local.raw.spokes)[var.account]
+  raw = yamldecode(file("${path.module}/../../prod/network-plan.yaml"))
+  target = merge(
+    local.raw.hubs,
+    local.raw.spokes,
+    { observability = merge(local.raw.observability, { region = local.raw.hubs.use1.region }) },
+  )[var.account]
 }
 
 provider "aws" {

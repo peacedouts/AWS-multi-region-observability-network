@@ -1,0 +1,92 @@
+# TEST FIXTURE: the prod plan with spoke-ca moved inside spoke-us's range.
+# network_plan must refuse it.
+# -----------------------------------------------------------------------------
+# Single source of truth for addressing and placement (prod).
+#
+# Every stack reads this file. Non-overlapping CIDRs are a hard prerequisite
+# for VPC peering, so CIDRs are allocated here once, reviewed in PRs, and
+# mirrored into AWS VPC IPAM pools (see docs/adr/0004-ip-address-plan.md).
+#
+# Account IDs are placeholders.
+# -----------------------------------------------------------------------------
+org_prefix: edge
+environment: prod
+pipeline_role_name: terraform-network-deployer
+runbook_base_url: https://runbooks.internal.example.com/network
+state_bucket: edge-tf-state-prod
+state_region: us-east-1
+
+# Subnet layout per VPC role. Subnet CIDRs are a pure function of
+# (vpc cidr, layout, az index), so any stack can compute any other VPC's
+# subnet CIDRs without reading its state.
+#   cidrsubnet(vpc_cidr, newbits, netnum_base + az_index)
+subnet_layouts:
+  hub:
+    public: { newbits: 8, netnum_base: 0, public: true } # /24  ALB/NAT/GA endpoints
+    app:    { newbits: 4, netnum_base: 1 }               # /20  central API (Fargate) + probes
+  spoke:
+    public:       { newbits: 8, netnum_base: 0, public: true } # /24  existing public ingress
+    app:          { newbits: 4, netnum_base: 1 }               # /20  regional API + regional gateway tasks
+    data:         { newbits: 4, netnum_base: 4 }               # /20  Aurora (never peer-routable)
+    interconnect: { newbits: 8, netnum_base: 240 }             # /24  regional gateway internal ALB (ONLY peer-routable tier)
+
+# Central observability platform: two active-active hubs, each in its OWN account,
+# so one account-level mistake (IAM change, compromised credential, service quota)
+# can only ever take out one hub.
+# Hubs hold NO event data at rest. They are stateless API tiers.
+hubs:
+  use1:
+    account_id: "111111111111"
+    region: us-east-1
+    cidr: 10.10.0.0/16
+    azs: [us-east-1a, us-east-1b, us-east-1c]
+  euw1:
+    account_id: "666666666666"
+    region: eu-west-1
+    cidr: 10.11.0.0/16
+    azs: [eu-west-1a, eu-west-1b, eu-west-1c]
+
+# Observability account: probe metrics and the alarm matrix live here, in BOTH
+# hub regions, so alerting sees every hub's results and survives losing a region.
+observability:
+  account_id: "777777777777"
+
+# Regional (data-resident) stacks: one AWS account per jurisdiction.
+# allowed_regions feeds the region-lock SCP for that account.
+spokes:
+  us:
+    account_id: "222222222222"
+    region: us-east-1
+    cidr: 10.20.0.0/16
+    azs: [us-east-1a, us-east-1b, us-east-1c]
+    allowed_regions: [us-east-1, us-west-2]
+    gateway_fqdn: gateway.us.data.internal.example.com
+  eu:
+    account_id: "333333333333"
+    region: eu-central-1
+    cidr: 10.30.0.0/16
+    azs: [eu-central-1a, eu-central-1b, eu-central-1c]
+    allowed_regions: [eu-central-1, eu-west-1]
+    gateway_fqdn: gateway.eu.data.internal.example.com
+  ca:
+    account_id: "444444444444"
+    region: ca-central-1
+    cidr: 10.20.128.0/17   # deliberately inside spoke-us (10.20.0.0/16)
+    azs: [ca-central-1a, ca-central-1b, ca-central-1d]
+    allowed_regions: [ca-central-1, ca-west-1]
+    gateway_fqdn: gateway.ca.data.internal.example.com
+  apac:
+    account_id: "555555555555"
+    region: ap-southeast-2
+    cidr: 10.50.0.0/16
+    azs: [ap-southeast-2a, ap-southeast-2b, ap-southeast-2c]
+    allowed_regions: [ap-southeast-2, ap-southeast-4]
+    gateway_fqdn: gateway.apac.data.internal.example.com
+
+# Reserved for growth (new jurisdictions, in-jurisdiction DR VPCs):
+#   10.12.0.0/16 - 10.19.0.0/16  additional hubs
+#   10.21.0.0/16                 us DR (us-west-2)
+#   10.31.0.0/16                 eu DR (eu-west-1)
+#   10.41.0.0/16                 ca DR (ca-west-1)
+#   10.51.0.0/16                 apac DR (ap-southeast-4)
+#   10.60.0.0/14                 future jurisdictions (e.g. UK, JP, IN)

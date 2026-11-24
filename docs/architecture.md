@@ -53,7 +53,7 @@ flowchart TB
     ga["AWS Global Accelerator<br/>2 anycast IPs · health-checked endpoints"]
     users --> ga
 
-    subgraph CENTRAL["Central platform account · no event data at rest"]
+    subgraph CENTRAL["Central platform: one account per hub · no event data at rest"]
         direction LR
         subgraph HUB1["hub-use1 · us-east-1 · 10.10.0.0/16"]
             api1["WAF → public ALB<br/>Central API on Fargate · 3 AZ<br/>Cognito pool A (federated)"]
@@ -105,7 +105,7 @@ There are no spoke-to-spoke connections, and peering is not transitive. EU traff
 | OU | Accounts | Notes |
 |---|---|---|
 | Security | log-archive, audit | Org CloudTrail (S3 Object Lock), Config aggregator, GuardDuty/Security Hub delegated admin |
-| Infrastructure | central-platform (hubs), observability, tooling (CI/OIDC, state) | Hubs hold no event data |
+| Infrastructure | hub-use1, hub-euw1 (one account each), observability, tooling (CI/OIDC, state) | Hubs hold no event data. Separate hub accounts mean an IAM mistake, a leaked credential or an exhausted service quota can only affect one hub. |
 | Regional Workloads | us-prod, eu-prod, ca-prod, apac-prod (+ non-prod twins) | Region-lock SCP per account, residency guardrail SCPs |
 
 Every account boundary is also a blast-radius and audit boundary. An auditor for the EU can be given read access to the EU account alone and see every access to EU data in it.
@@ -278,7 +278,7 @@ flowchart LR
 | Principal | Lives in | Can do | Cannot do |
 |---|---|---|---|
 | Reviewer (human) | Corporate IdP, federated through a Cognito pool per hub | Call the central API with a JWT carrying `regions` entitlements | Reach any regional network or AWS API directly |
-| Central API task role | Hub account | Read its mTLS client cert, write metrics/logs | Assume any role in regional accounts. It holds **no** cross-account IAM to data. |
+| Central API task role | Each hub account | Read its mTLS client cert, write metrics/logs | Assume any role in regional accounts. It holds **no** cross-account IAM to data. |
 | Regional gateway task role | Each regional account | `rds-db:connect` (IAM DB auth: reader user and a narrowly-scoped writer user for ratings), `s3:GetObject` on the event bucket (for presigning), write the access-audit log | Anything outside its region (SCP) |
 | `terraform-network-deployer` | Every account | Network + monitoring plumbing, assumed only by the CI pipeline role, which itself trusts only this repository's GitHub OIDC subject | Data plane: denied `rds:*`, `rds-db:connect`, `secretsmanager:GetSecretValue`, `kms:Decrypt` and event-bucket objects by permissions boundary |
 | Flow-log role, probe role | Per VPC / hub | Write logs / put metrics in one namespace | Anything else |
@@ -292,7 +292,7 @@ The trust model deliberately has **no cross-account IAM path from the center to 
 
 99.9999% is about **31.5 seconds of failure per year**. That changes the design in three ways.
 
-**1. No single AWS service SLA gets there.** Published SLAs for the services in the path (ALB, ECS/Fargate, Global Accelerator, Aurora Multi-AZ) are in the 99.95–99.99% range, and they are financial commitments, not observed availability. Six nines has to come from **independent redundancy**: two hubs in different regions sharing no infrastructure except Global Accelerator, which itself has two anycast IPs on independent network zones. Clients also know a per-hub DNS fallback name.
+**1. No single AWS service SLA gets there.** Published SLAs for the services in the path (ALB, ECS/Fargate, Global Accelerator, Aurora Multi-AZ) are in the 99.95–99.99% range, and they are financial commitments, not observed availability. Six nines has to come from **independent redundancy**: two hubs in different regions *and different AWS accounts*, sharing no infrastructure except Global Accelerator, which itself has two anycast IPs on independent network zones. Clients also know a per-hub DNS fallback name.
 
 **2. Detection-based failover is too slow.** A health-check failover of about 30 seconds would spend the whole year's budget in one event. So failures have to be absorbed rather than detected and reacted to. Both hubs serve traffic at all times, and a failure turns into a *retry*, not an error the user sees:
 - Client SDK/UI retries idempotent calls on the other hub within a retry budget. Writes carry idempotency keys, so retries are safe.

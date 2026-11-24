@@ -47,6 +47,12 @@ variable "mtls_secret_arn" {
   description = "Secrets Manager secret holding {cert,key,ca} for the probe's mTLS client identity."
 }
 
+variable "metric_role_arn" {
+  type        = string
+  default     = ""
+  description = "Write-only role in the observability account to assume for PutMetricData. Empty = write to this account."
+}
+
 variable "probe_interval_seconds" {
   type    = number
   default = 10
@@ -102,6 +108,15 @@ data "aws_iam_policy_document" "probe" {
   }
 
   dynamic "statement" {
+    for_each = var.metric_role_arn == "" ? [] : [1]
+    content {
+      sid       = "AssumeObservabilityMetricsWriter"
+      actions   = ["sts:AssumeRole"]
+      resources = [var.metric_role_arn]
+    }
+  }
+
+  dynamic "statement" {
     for_each = var.mtls_secret_arn == "" ? [] : [1]
     content {
       sid       = "ReadProbeClientCert"
@@ -148,6 +163,7 @@ resource "aws_lambda_function" "probe" {
       PROBE_INTERVAL_SECONDS = tostring(var.probe_interval_seconds)
       PROBE_WINDOW_SECONDS   = "50"
       MTLS_SECRET_ARN        = var.mtls_secret_arn
+      METRIC_ROLE_ARN        = var.metric_role_arn
     }
   }
 
@@ -172,6 +188,11 @@ resource "aws_lambda_permission" "events" {
   function_name = aws_lambda_function.probe.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.every_minute.arn
+}
+
+output "role_arn" {
+  value       = aws_iam_role.probe.arn
+  description = "Probe execution role (trusted by the observability account's metrics-writer role)."
 }
 
 output "function_name" {

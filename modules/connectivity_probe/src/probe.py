@@ -9,9 +9,10 @@ Every PROBE_INTERVAL seconds for ~one invocation window it measures, per target:
     DNS resolution, TCP connect, TLS handshake, time-to-first-byte, success.
 
 Metrics are high-resolution (1s storage) and are DUAL-WRITTEN to every region
-in METRIC_REGIONS so each hub region holds the full hub x region matrix. That
-lets each region evaluate the correlation (composite) alarms on its own: the
-alerting path has no single-region dependency.
+in METRIC_REGIONS, in the observability account (via METRIC_ROLE_ARN). Every
+hub's probe lands in the same account, so each region holds the full
+hub x region matrix and evaluates the correlation alarms on its own: alerting
+has no single-region dependency.
 """
 
 import json
@@ -31,9 +32,25 @@ INTERVAL = int(os.environ.get("PROBE_INTERVAL_SECONDS", "10"))
 WINDOW = int(os.environ.get("PROBE_WINDOW_SECONDS", "50"))
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT_SECONDS", "3"))
 MTLS_SECRET_ARN = os.environ.get("MTLS_SECRET_ARN", "")
+METRIC_ROLE_ARN = os.environ.get("METRIC_ROLE_ARN", "")  # write-only role in the observability account
 
-_cw = {r: boto3.client("cloudwatch", region_name=r) for r in METRIC_REGIONS}
 _ssl_ctx = None
+
+
+def _metric_clients():
+    """CloudWatch clients for every metrics region, in the observability account when a role is set.
+    Called once per invocation so the assumed-role credentials never go stale."""
+    creds = {}
+    if METRIC_ROLE_ARN:
+        c = boto3.client("sts").assume_role(
+            RoleArn=METRIC_ROLE_ARN, RoleSessionName=f"connectivity-probe-{SOURCE_HUB}"
+        )["Credentials"]
+        creds = {
+            "aws_access_key_id": c["AccessKeyId"],
+            "aws_secret_access_key": c["SecretAccessKey"],
+            "aws_session_token": c["SessionToken"],
+        }
+    return {r: boto3.client("cloudwatch", region_name=r, **creds) for r in METRIC_REGIONS}
 
 
 def _tls_context():
@@ -82,7 +99,7 @@ def probe(target):
     return result
 
 
-def emit(results):
+def emit(cw_clients, results):
     data = []
     for r in results:
         dims = [{"Name": "SourceHub", "Value": SOURCE_HUB}, {"Name": "TargetRegion", "Value": r["region"]}]
@@ -92,7 +109,7 @@ def emit(results):
             if m in r:
                 data.append({"MetricName": m, "Dimensions": dims, "Value": r[m],
                              "Unit": "Milliseconds", "StorageResolution": 1})
-    for region, cw in _cw.items():
+    for region, cw in cw_clients.items():
         try:
             cw.put_metric_data(Namespace=NAMESPACE, MetricData=data)
         except Exception as exc:
@@ -103,11 +120,12 @@ def emit(results):
 
 def handler(event, context):
     deadline = time.monotonic() + WINDOW
+    cw_clients = _metric_clients()
     with ThreadPoolExecutor(max_workers=max(1, len(TARGETS))) as pool:
         while time.monotonic() < deadline:
             started = time.monotonic()
             results = list(pool.map(probe, TARGETS))
-            emit(results)
+            emit(cw_clients, results)
             print(json.dumps({"hub": SOURCE_HUB, "results": results}))
             time.sleep(max(0, INTERVAL - (time.monotonic() - started)))
     return {"ok": True}

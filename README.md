@@ -76,6 +76,7 @@ docs/                      design doc, monitoring, deployment, ADRs
 
 ```bash
 make validate                                  # format check, then init and validate every stack
+make test                                      # unit tests for the network plan, including the overlap check
 make lock                                      # regenerate the provider lock files for macOS and Linux
 make plan  STACK=spoke INSTANCE=eu             # needs AWS credentials for the CI role
 make apply STACK=connectivity INSTANCE=prod
@@ -91,7 +92,7 @@ This connects the hub in `eu-west-1` to the EU spoke in `eu-central-1`. The rout
 module "peer_hub_euw1_spoke_eu" {
   source = "../../../modules/vpc_peering"
   providers = {
-    aws.requester = aws.hub_euw1   # central account, eu-west-1
+    aws.requester = aws.hub_euw1   # hub-euw1 account, eu-west-1
     aws.accepter  = aws.spoke_eu   # EU account,      eu-central-1
   }
 

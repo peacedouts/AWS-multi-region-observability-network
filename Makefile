@@ -1,5 +1,6 @@
 # Usage:
 #   make validate
+#   make test                     # unit tests for the network plan (no AWS needed)
 #   make lock                     # refresh committed .terraform.lock.hcl files (all platforms)
 #   make plan  STACK=spoke INSTANCE=eu
 #   make apply STACK=hub   INSTANCE=use1
@@ -18,7 +19,7 @@ VAR_connectivity  =
 # Terraform (laptops + CI), or CI fails with a checksum mismatch.
 PLATFORMS := -platform=darwin_arm64 -platform=darwin_amd64 -platform=linux_amd64 -platform=linux_arm64
 
-.PHONY: fmt validate lock init plan apply
+.PHONY: fmt validate test lock init plan apply
 
 fmt:
 	$(TF) fmt -recursive
@@ -26,6 +27,9 @@ fmt:
 validate:
 	$(TF) fmt -recursive -check
 	@for d in $(ROOTS); do echo "== $$d"; (cd $$d && $(TF) init -backend=false -input=false >/dev/null && $(TF) validate) || exit 1; done
+
+test:
+	cd modules/network_plan && $(TF) init -input=false >/dev/null && $(TF) test
 
 lock:
 	@for d in $(ROOTS); do echo "== $$d"; (cd $$d && $(TF) init -backend=false -input=false >/dev/null && $(TF) providers lock $(PLATFORMS)) || exit 1; done

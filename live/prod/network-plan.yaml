@@ -28,7 +28,9 @@ subnet_layouts:
     data:         { newbits: 4, netnum_base: 4 }               # /20  Aurora (never peer-routable)
     interconnect: { newbits: 8, netnum_base: 240 }             # /24  regional gateway internal ALB (ONLY peer-routable tier)
 
-# Central observability platform: two active-active hubs in one account.
+# Central observability platform: two active-active hubs, each in its OWN account,
+# so one account-level mistake (IAM change, compromised credential, service quota)
+# can only ever take out one hub.
 # Hubs hold NO event data at rest. They are stateless API tiers.
 hubs:
   use1:
@@ -37,10 +39,15 @@ hubs:
     cidr: 10.10.0.0/16
     azs: [us-east-1a, us-east-1b, us-east-1c]
   euw1:
-    account_id: "111111111111"
+    account_id: "666666666666"
     region: eu-west-1
     cidr: 10.11.0.0/16
     azs: [eu-west-1a, eu-west-1b, eu-west-1c]
+
+# Observability account: probe metrics and the alarm matrix live here, in BOTH
+# hub regions, so alerting sees every hub's results and survives losing a region.
+observability:
+  account_id: "777777777777"
 
 # Regional (data-resident) stacks: one AWS account per jurisdiction.
 # allowed_regions feeds the region-lock SCP for that account.
