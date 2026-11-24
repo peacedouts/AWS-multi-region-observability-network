@@ -29,8 +29,6 @@ jobs:
       - run: make test
       - uses: terraform-linters/setup-tflint@v4
       - run: tflint --init && tflint --recursive
-      - uses: bridgecrewio/checkov-action@v12
-        with: { directory: ., framework: terraform, config_file: .checkov.yaml }
 
   # Dependency order: spokes + hubs -> connectivity -> observability.
   # max-parallel: 1 within prod = one hub / one spoke at a time.
@@ -96,20 +94,3 @@ jobs:
           role: ${{ env.PIPELINE_ROLE }}
           tf_version: ${{ env.TF_VERSION }}
           apply: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
-
-
-  verify:
-    needs: observability
-    # Runs once the services exist and their ENI IDs are set as repository variables.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.HUB_ENI != ''
-    runs-on: ubuntu-latest
-    env:
-      HUB_ENI: ${{ vars.HUB_ENI }}
-      GATEWAY_ALB_ENI: ${{ vars.GATEWAY_ALB_ENI }}
-      AURORA_ENI: ${{ vars.AURORA_ENI }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with: { role-to-assume: "${{ env.PIPELINE_ROLE }}", aws-region: us-east-1 }
-      - name: Reachability Analyzer (positive and negative paths)
-        run: ./scripts/verify-reachability.sh

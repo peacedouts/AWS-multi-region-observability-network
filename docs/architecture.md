@@ -415,6 +415,6 @@ Inter-region RTTs range from tens of milliseconds (US↔CA) to roughly 200+ ms (
 | Overlapping CIDRs in brownfield spokes | PrivateLink for that spoke (ADR-0001). IPAM prevents new overlaps. |
 | Legal position on cross-border *access* | Design supports pinning a jurisdiction to its own hub (one-line plan change) |
 | Six nines depends on client retry behavior | Ship an internal client SDK with the retry budget and hub fallback built in. Measure SLO at the edge after retries. |
-| Probe-based detection has blind spots | Combine with real-traffic RED metrics and a negative reachability test in CI (see monitoring doc) |
+| Probe-based detection has blind spots | Combine with real-traffic RED metrics and a negative reachability test after every apply (see monitoring doc) |
 
 **Implemented in this repo vs designed only.** Implemented: VPC module (tiers, per-tier routing, NAT, endpoints, NACL, flow logs), cross-account cross-region peering module, SG modules, connectivity probe, correlated alerting, change guardrails, deployer IAM role with boundary, SCPs, live stacks for 2 hubs, 4 spokes and the full peering mesh. Designed only: central API and regional gateway services, GA/ALB/WAF, the per-hub Cognito pools, Private CA, private hosted zones, OAM wiring, Grafana dashboards.

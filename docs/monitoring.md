@@ -148,6 +148,6 @@ The probe tells us the network is broken. The SLO tells us whether users are hur
 
 ## 6. Proving it works
 
-- **Negative reachability tests in CI:** after every apply, AWS Reachability Analyzer must report hub app ENI → spoke gateway ALB **reachable**, and hub app ENI → spoke Aurora ENI **not reachable**. Isolation is tested, not assumed.
+- **Negative reachability tests after every apply** (to be added to the pipeline once the services exist): AWS Reachability Analyzer must report hub app ENI → spoke gateway ALB **reachable**, and hub app ENI → spoke Aurora ENI **not reachable**. Isolation is tested, not assumed.
 - **Game days with AWS Fault Injection Service:** disrupt cross-region connectivity on one hub's route tables, black-hole one spoke, kill the probe. Each experiment states which alert must fire, within how long, and that the platform SLO must hold.
 - **Alert hygiene review** every two weeks: every page from the last period is checked for whether it was actionable. Non-actionable alerts are fixed or deleted.

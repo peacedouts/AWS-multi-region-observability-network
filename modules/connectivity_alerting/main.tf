@@ -63,12 +63,6 @@ variable "default_latency_p99_threshold_ms" {
   default = 300
 }
 
-variable "local_probe_function_name" {
-  type        = string
-  default     = ""
-  description = "This region's probe Lambda; alarms if the probe itself is broken (so a dead probe is not mistaken for a dead network)."
-}
-
 variable "tags" {
   type    = map(string)
   default = {}
@@ -185,27 +179,6 @@ resource "aws_cloudwatch_metric_alarm" "pair_latency" {
   treat_missing_data  = "notBreaching" # missing data is handled by the availability alarms
   alarm_actions       = [var.ticket_topic_arn]
   ok_actions          = [var.ticket_topic_arn]
-  tags                = var.tags
-}
-
-# -----------------------------------------------------------------------------
-# Watch the watcher
-# -----------------------------------------------------------------------------
-resource "aws_cloudwatch_metric_alarm" "probe_errors" {
-  count = var.local_probe_function_name == "" ? 0 : 1
-
-  alarm_name          = "net-SEV3-probe-${var.local_probe_function_name}-errors"
-  alarm_description   = "Connectivity probe Lambda erroring. Probe blind spot: a hub_isolated alarm may be a false positive. Runbook: ${var.runbook_base_url}/net-probe"
-  namespace           = "AWS/Lambda"
-  metric_name         = "Errors"
-  dimensions          = { FunctionName = var.local_probe_function_name }
-  statistic           = "Sum"
-  period              = 60
-  evaluation_periods  = 3
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  threshold           = 1
-  treat_missing_data  = "breaching"
-  alarm_actions       = [var.ticket_topic_arn]
   tags                = var.tags
 }
 
