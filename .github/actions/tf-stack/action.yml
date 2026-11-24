@@ -1,0 +1,45 @@
+name: tf-stack
+description: Plan (and on main, apply) one instance of one live stack
+inputs:
+  stack:    { required: true, description: "spoke | hub | connectivity | observability" }
+  instance: { required: true, description: "us | eu | ca | apac | use1 | euw1 | prod" }
+  apply:    { required: false, default: "false", description: "Apply the saved plan" }
+  role:     { required: true, description: "Pipeline role to assume via OIDC" }
+  tf_version: { required: true, description: "Terraform version" }
+runs:
+  using: composite
+  steps:
+    - uses: hashicorp/setup-terraform@v3
+      with: { terraform_version: "${{ inputs.tf_version }}", terraform_wrapper: false }
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role }}
+        aws-region: us-east-1
+        role-session-name: gha-${{ inputs.stack }}-${{ inputs.instance }}
+        role-session-tags: true   # carries the repository tag the deployer role's trust policy requires
+    - name: plan
+      shell: bash
+      working-directory: live/prod/${{ inputs.stack }}
+      run: |
+        case "${{ inputs.stack }}" in
+          spoke) VARS="-var spoke=${{ inputs.instance }}" ;;
+          hub|observability) VARS="-var hub=${{ inputs.instance }}" ;;
+          *) VARS="" ;;
+        esac
+        terraform init -input=false -reconfigure -backend-config=backends/${{ inputs.instance }}.hcl
+        set +e
+        terraform plan -input=false -detailed-exitcode $VARS -out=tf.plan | tee plan.txt
+        rc=${PIPESTATUS[0]}
+        set -e
+        [ "$rc" = 1 ] && exit 1
+        [ "$rc" = 2 ] && echo "::notice::changes (or drift) in ${{ inputs.stack }}/${{ inputs.instance }}"
+        exit 0
+    - uses: actions/upload-artifact@v4
+      with:
+        name: plan-${{ inputs.stack }}-${{ inputs.instance }}
+        path: live/prod/${{ inputs.stack }}/plan.txt
+    - name: apply
+      if: inputs.apply == 'true'
+      shell: bash
+      working-directory: live/prod/${{ inputs.stack }}
+      run: terraform apply -input=false tf.plan

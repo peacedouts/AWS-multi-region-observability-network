@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyPipelineOrBreakGlassChangesTheNetwork",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:CreateVpcPeeringConnection", "ec2:AcceptVpcPeeringConnection",
+        "ec2:DeleteVpcPeeringConnection", "ec2:ModifyVpcPeeringConnectionOptions",
+        "ec2:CreateRoute", "ec2:ReplaceRoute", "ec2:DeleteRoute",
+        "ec2:AssociateRouteTable", "ec2:ReplaceRouteTableAssociation",
+        "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:CreateNetworkAclEntry", "ec2:ReplaceNetworkAclEntry", "ec2:DeleteNetworkAclEntry",
+        "ec2:CreateTransitGatewayVpcAttachment", "ec2:AttachInternetGateway"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": [
+            "arn:aws:iam::*:role/terraform-network-deployer",
+            "arn:aws:iam::*:role/break-glass-network-admin"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "NobodyDisablesAuditTrail",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:DeleteFlowLogs",
+        "logs:DeleteLogGroup",
+        "cloudtrail:StopLogging", "cloudtrail:DeleteTrail",
+        "config:StopConfigurationRecorder", "config:DeleteConfigurationRecorder",
+        "guardduty:DeleteDetector"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/break-glass-network-admin"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NoMultiRegionKmsKeysInRegionalAccounts",
+      "Effect": "Deny",
+      "Action": ["kms:CreateKey", "kms:ReplicateKey"],
+      "Resource": "*",
+      "Condition": { "Bool": { "kms:MultiRegion": "true" } }
+    },
+    {
+      "Sid": "NoReplicationOrSnapshotSharingOutOfJurisdiction",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutReplicationConfiguration",
+        "rds:ModifyDBClusterSnapshotAttribute",
+        "rds:ModifyDBSnapshotAttribute",
+        "rds:CopyDBClusterSnapshot",
+        "rds:CopyDBSnapshot",
+        "rds:CreateGlobalCluster",
+        "dynamodb:CreateGlobalTable",
+        "dynamodb:UpdateGlobalTable",
+        "ec2:CopySnapshot",
+        "ec2:ModifySnapshotAttribute"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::*:role/data-platform-dr-deployer"
+        }
+      }
+    },
+    {
+      "Sid": "SpokesMayOnlyPeerWithHubVpcs",
+      "Effect": "Deny",
+      "Action": ["ec2:AcceptVpcPeeringConnection", "ec2:CreateVpcPeeringConnection"],
+      "Resource": "arn:aws:ec2:*:*:vpc-peering-connection/*",
+      "Condition": {
+        "ArnNotLike": {
+          "ec2:RequesterVpc": "arn:aws:ec2:*:111111111111:vpc/*"
+        }
+      }
+    }
+  ]
+}

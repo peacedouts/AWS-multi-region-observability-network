@@ -1,0 +1,106 @@
+name: terraform-network
+
+on:
+  pull_request:
+    paths: ["modules/**", "live/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["modules/**", "live/**"]
+  schedule:
+    - cron: "17 6 * * *" # nightly drift detection
+
+permissions:
+  id-token: write   # GitHub OIDC -> AWS, no static keys
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.10.5"
+  PIPELINE_ROLE: arn:aws:iam::999999999999:role/github-actions-network-pipeline
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "${{ env.TF_VERSION }}" }
+      - run: make validate
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init && tflint --recursive
+      - uses: bridgecrewio/checkov-action@v12
+        with: { directory: ., framework: terraform, soft_fail: false }
+
+  # Dependency order: spokes + hubs -> connectivity -> observability.
+  # max-parallel: 1 within prod = one hub / one spoke at a time.
+  vpcs:
+    needs: static
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - { stack: spoke, instance: us }
+          - { stack: spoke, instance: eu }
+          - { stack: spoke, instance: ca }
+          - { stack: spoke, instance: apac }
+          - { stack: hub, instance: use1 }
+          - { stack: hub, instance: euw1 }
+    environment: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'prod' || 'plan-only' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/tf-stack
+        with:
+          stack: ${{ matrix.stack }}
+          instance: ${{ matrix.instance }}
+          role: ${{ env.PIPELINE_ROLE }}
+          tf_version: ${{ env.TF_VERSION }}
+          apply: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+
+  connectivity:
+    needs: vpcs
+    runs-on: ubuntu-latest
+    strategy: { matrix: { include: [ { stack: connectivity, instance: prod } ] } }
+    environment: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'prod' || 'plan-only' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/tf-stack
+        with:
+          stack: ${{ matrix.stack }}
+          instance: ${{ matrix.instance }}
+          role: ${{ env.PIPELINE_ROLE }}
+          tf_version: ${{ env.TF_VERSION }}
+          apply: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+
+
+  observability:
+    needs: connectivity
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - { stack: observability, instance: use1 }
+          - { stack: observability, instance: euw1 }
+    environment: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'prod' || 'plan-only' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/tf-stack
+        with:
+          stack: ${{ matrix.stack }}
+          instance: ${{ matrix.instance }}
+          role: ${{ env.PIPELINE_ROLE }}
+          tf_version: ${{ env.TF_VERSION }}
+          apply: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+
+
+  verify:
+    needs: observability
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ env.PIPELINE_ROLE }}", aws-region: us-east-1 }
+      - name: Reachability Analyzer (positive and negative paths)
+        run: ./scripts/verify-reachability.sh
