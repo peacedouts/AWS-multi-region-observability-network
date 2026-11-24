@@ -1,10 +1,10 @@
 # Multi-Region Observability Platform: Network Layer
 
-Terraform and design documents for a **centralized observability platform** that lets internal teams review and rate edge-device events stored in **data-resident regional AWS stacks** (US, EU, CA, APAC), without moving that data out of its jurisdiction.
+This is the network layer for a central platform where internal teams review and rate events from edge devices. The catch is that the event data lives in separate regional AWS stacks (US, EU, CA and APAC) and has to stay there for data-residency reasons. So the question is how to give one central API access to all of it without moving any of it.
 
-> **Start here:** [`docs/architecture.md`](docs/architecture.md) (design, diagrams, security, decisions) · [`docs/monitoring.md`](docs/monitoring.md) (metrics and alerting) · [`docs/deployment.md`](docs/deployment.md) (module organization and rollout) · [`docs/adr/`](docs/adr) (decision records, including [ADR-0005](docs/adr/0005-identity-cognito-per-hub.md) on identity)
+If you only read one thing, read the [design doc](docs/architecture.md). The [monitoring doc](docs/monitoring.md) covers metrics and alerting, [deployment.md](docs/deployment.md) covers how the Terraform is organized and rolled out, and the [ADRs](docs/adr) record the main decisions.
 
-## The design at a glance
+## How it works
 
 ```mermaid
 flowchart LR
@@ -20,66 +20,72 @@ flowchart LR
     AP --> APD[("APAC data")]
 ```
 
-- **Dual hub-and-spoke over inter-region VPC peering.** Every region is reachable from two independent hubs. Regions can never reach each other, because peering is non-transitive.
-- **Hubs reach only a regional gateway** in a dedicated interconnect subnet tier, never a database. The data tier has no route to the hubs, and a NACL backs that up.
-- **No event data at rest centrally.** Video goes straight from regional S3 to the reviewer via presigned URL.
-- **Residency enforced by the platform:** region-lock SCPs, no cross-region replication or multi-region keys, in-region access audit.
-- **Six nines, stated honestly:** active-active hubs with failure-oblivious retries for the platform, and a separate per-region data SLO bounded by residency ([ADR-0003](docs/adr/0003-six-nines-scope.md)).
-- **Monitoring built for a network with no native peering metrics:** a hub × region probe matrix with correlated composite alarms that page on impact and stay alive if a whole region is lost.
+Two central "hubs" run the API, one in `us-east-1` and one in `eu-west-1`, behind Global Accelerator. Each hub is peered with every regional VPC, and the two hubs are peered with each other as a fallback path.
 
-## Where each requirement is answered
+A few decisions shape everything else:
 
-| The brief asks for | Where |
+- **The regions can't talk to each other.** VPC peering isn't transitive, so even with a bad route, EU traffic can't reach the US VPC through a hub.
+- **The hubs never touch a database.** They can only reach a small gateway service in each region. The database subnets don't even have a route back to the hubs, and a network ACL blocks them as well.
+- **Nothing is stored centrally.** Video clips go from the regional S3 bucket straight to the reviewer through a short-lived presigned URL.
+- **Residency is enforced by AWS, not by convention.** SCPs lock each account to its own regions and block cross-region replication, and every data access is audited inside its own region.
+- **Six nines is split in two.** The platform targets 99.9999% by running both hubs at once and retrying on the other hub when one fails. Each region's data gets its own 99.99% target, because EU data can't be more available than the EU infrastructure it's required to live on. [ADR-0003](docs/adr/0003-six-nines-scope.md) explains the reasoning.
+- **Monitoring works around a gap in AWS.** VPC peering doesn't publish any CloudWatch metrics, so a probe tests every hub-to-region path every 10 seconds. Alerts are correlated, so on-call gets one page saying "EU is unreachable" instead of eight separate alarms.
+
+## Where to find each part of the brief
+
+| Requirement | Where |
 |---|---|
-| Architecture diagram: VPC peering, security groups, IAM roles, data-flow paths | [Design doc](docs/architecture.md) §3.1 topology · §4 request flow · §5.2 routing and security groups · §7 IAM trust |
-| Secure cross-region connectivity that keeps data resident | Design doc §5 and §6 · [ADR-0001](docs/adr/0001-connectivity-vpc-peering.md) · [ADR-0002](docs/adr/0002-regional-gateway-not-direct-db.md) |
-| Central reads from every region, writes routed to the owning region | Design doc §4 · ADR-0002 |
-| Redundancy, regional failures, 99.9999% | Design doc §8 · [ADR-0003](docs/adr/0003-six-nines-scope.md) |
+| Architecture diagram: VPC peering, security groups, IAM roles, data-flow paths | [Design doc](docs/architecture.md) §3.1 topology, §4 request flow, §5.2 routing and security groups, §7 IAM trust |
+| Secure cross-region connectivity that keeps data resident | Design doc §5 and §6, [ADR-0001](docs/adr/0001-connectivity-vpc-peering.md), [ADR-0002](docs/adr/0002-regional-gateway-not-direct-db.md) |
+| Central reads from every region, writes routed to the owning region | Design doc §4, ADR-0002 |
+| Redundancy, regional failures, 99.9999% | Design doc §8, [ADR-0003](docs/adr/0003-six-nines-scope.md) |
 | Inter-region latency | Design doc §11 |
-| Terraform module structure and how it's organized and deployed | `modules/` · `live/prod/` · [deployment.md](docs/deployment.md) |
-| VPC creation and VPC peering code, with an instantiation example | `modules/vpc` · `modules/vpc_peering` · `live/prod/connectivity` · example below |
-| Why each connectivity option was chosen | Design doc §9 · [`docs/adr/`](docs/adr) |
-| Network monitoring: metrics and alerting | [monitoring.md](docs/monitoring.md) · `modules/connectivity_probe` · `modules/connectivity_alerting` |
-| Security best practices, auditability | Design doc §7 and §10 · `policies/scp/` · `modules/network_guardrails` · `modules/iam_network_deployer` |
+| Terraform module structure, and how it's organized and deployed | `modules/`, `live/prod/`, [deployment.md](docs/deployment.md) |
+| VPC creation and VPC peering code, with an example of using it | `modules/vpc`, `modules/vpc_peering`, `live/prod/connectivity`, and the example below |
+| Why each connectivity option was chosen | Design doc §9, [`docs/adr/`](docs/adr) |
+| Network monitoring: metrics and alerting | [monitoring.md](docs/monitoring.md), `modules/connectivity_probe`, `modules/connectivity_alerting` |
+| Security best practices and auditability | Design doc §7 and §10, `policies/scp/`, `modules/network_guardrails`, `modules/iam_network_deployer` |
 | Assumptions and scope | Design doc §2 and §13 |
 
 ## Repository layout
 
 ```
 modules/
-  network_plan/            pure data: network-plan.yaml → derived subnet CIDRs
-  vpc/                     3-AZ tiered VPC · per-tier route tables · NAT · endpoints · data NACL · flow logs
-  vpc_peering/             cross-account, cross-region peering + both sides' routes
-  security_groups/         central_api (hub egress) · regional_gateway (spoke ingress)
-  connectivity_probe/      Lambda probe: DNS / TCP / TLS / TTFB per hub → region
-  connectivity_alerting/   pair alarms → composite alarms (region / hub / path)
-  network_guardrails/      out-of-band network change detection + Config rules
-  alert_topic/             KMS-encrypted SNS for pages and tickets
-  iam_network_deployer/    CI deployer role; permissions boundary denies the data plane
+  network_plan/            reads network-plan.yaml and works out every subnet CIDR
+  vpc/                     3-AZ VPC with tiered subnets, per-tier route tables, NAT, endpoints, data NACL, flow logs
+  vpc_peering/             cross-account, cross-region peering plus the routes on both sides
+  security_groups/         central_api (hub egress) and regional_gateway (spoke ingress)
+  connectivity_probe/      Lambda that times DNS, TCP, TLS and first byte from each hub to each region
+  connectivity_alerting/   per-path alarms rolled up into region, hub and path alerts
+  network_guardrails/      alerts on network changes made outside Terraform, plus Config rules
+  alert_topic/             encrypted SNS topics for pages and tickets
+  iam_network_deployer/    the CI deployer role, with a boundary that blocks any data access
 live/
-  bootstrap/deployer-role/ once per account
+  bootstrap/deployer-role/ run once per account
   prod/
-    network-plan.yaml      single source of truth: accounts, regions, CIDRs, subnet layouts
+    network-plan.yaml      the one place accounts, regions, CIDRs and subnet layouts are defined
     spoke/                 -var spoke=us|eu|ca|apac
     hub/                   -var hub=use1|euw1
-    connectivity/          the 9 peering connections
+    connectivity/          all 9 peering connections
     observability/         -var hub=use1|euw1
-policies/scp/              region-lock, residency guardrails, network-change protection
-docs/                      architecture, monitoring, deployment, ADRs
+policies/scp/              region lock, residency guardrails, protection against network changes
+docs/                      design doc, monitoring, deployment, ADRs
 ```
 
 ## Quick start
 
 ```bash
-make validate                                  # fmt + init(-backend=false) + validate every stack
-make lock                                      # (re)generate committed provider lock files for macOS + Linux
+make validate                                  # format check, then init and validate every stack
+make lock                                      # regenerate the provider lock files for macOS and Linux
 make plan  STACK=spoke INSTANCE=eu             # needs AWS credentials for the CI role
 make apply STACK=connectivity INSTANCE=prod
 ```
 
-Deployment order and CI/CD are in [`docs/deployment.md`](docs/deployment.md).
+The deployment order and the CI/CD pipeline are described in [deployment.md](docs/deployment.md).
 
-## Example: instantiating the peering module
+## Example: wiring up one peering connection
+
+This connects the hub in `eu-west-1` to the EU spoke in `eu-central-1`. The routes only cover the hub's app subnets and the spoke's interconnect subnets, never whole VPCs.
 
 ```hcl
 module "peer_hub_euw1_spoke_eu" {
@@ -105,18 +111,21 @@ module "peer_hub_euw1_spoke_eu" {
 }
 ```
 
-## Assumptions (full list in the design doc §2)
+## Main assumptions
 
-- The center may *process* regional data in transit but must not *store* it. The legal basis for cross-border access is Legal's call, and the design can pin a jurisdiction to its own hub with a one-line change.
-- Reviewers are internal staff signing in through a Cognito user pool in each hub, federated to the corporate IdP. Region entitlements come from IdP groups.
-- Regional CIDRs can be made non-overlapping. Any spoke that can't uses PrivateLink instead ([ADR-0001](docs/adr/0001-connectivity-vpc-peering.md)).
-- Monitoring data has no PII (given), and services log IDs, never payloads.
+The full list is in §2 of the design doc. The ones that matter most:
 
-## Scope
+- The center can *process* regional data as it passes through, but can't *store* it. Whether staff in one country may view another country's data is a legal question. If the answer is no, the design can pin a jurisdiction to its own hub with a one-line change.
+- Reviewers are internal staff. They sign in through a Cognito user pool in each hub, both connected to the corporate identity provider, and their region permissions come from their groups there.
+- The regional VPCs can be given non-overlapping IP ranges. Any region that can't uses PrivateLink instead ([ADR-0001](docs/adr/0001-connectivity-vpc-peering.md)).
+- Monitoring data contains no personal information, which the brief states. Services log event IDs, never event contents.
 
-**Implemented:** networking modules and live stacks for 2 hubs, 4 spokes and the full peering mesh; security groups, NACLs, flow logs; probe, correlated alerting and change guardrails; deployer IAM role; SCPs. All stacks pass `terraform validate`.
-**Designed, not implemented:** central API and regional gateway services, Global Accelerator/ALB/WAF, Private CA and private hosted zones, OAM wiring and dashboards. These are described in the design doc.
+## What's built and what's only designed
+
+**Built:** the networking modules and live stacks for 2 hubs, 4 regions and all the peering between them, plus security groups, network ACLs, flow logs, the probe, the correlated alerting, the change guardrails, the deployer IAM role and the SCPs.
+
+**Designed but not built** (described in the design doc): the central API and regional gateway services, Global Accelerator, the ALBs and WAF, the Cognito pools, Private CA and private DNS zones, and the cross-account monitoring setup and dashboards.
 
 ## Validation
 
-Validated with Terraform 1.10.5 and `hashicorp/aws` 5.100 (`make validate`); provider lock files cover macOS and Linux (`make lock`). The code was not applied to live accounts; account IDs in `network-plan.yaml` are placeholders.
+I validated everything with Terraform 1.10.5 and version 5.100 of the AWS provider using `make validate`, and the committed lock files cover macOS and Linux. None of it has been applied to a real AWS account, and the account IDs in `network-plan.yaml` are placeholders.
