@@ -69,13 +69,17 @@ cd live/prod/monitoring && terraform init -reconfigure -backend-config=backends/
 
 A `Makefile` wraps these (`make plan STACK=spoke INSTANCE=eu`).
 
-## 3. CI/CD (`.github/workflows/terraform.yml`)
+## 3. CI/CD
 
-1. **On pull request:** `terraform fmt -check`, `validate`, `tflint` and `terraform test`, then `plan` for every affected stack instance. Plans are posted to the PR and stored as artifacts (audit evidence).
+**What runs in this repo today:** `.github/workflows/terraform.yml` runs the static checks on every push and pull request: `terraform fmt -check`, `validate`, `terraform test` and `tflint`. None of them need AWS access.
+
+**The deployment pipeline, as designed** (not wired up here, because the AWS accounts are placeholders):
+
+1. **On pull request:** the static checks, then `plan` for every affected stack instance. Plans are posted to the PR and stored as artifacts (audit evidence).
 2. **Auth:** GitHub OIDC → `github-actions-network-pipeline` in the tooling account → `terraform-network-deployer` in each target account. No static keys.
-3. **On merge to main:** apply in dependency order. Each production stack uses a GitHub Environment with required reviewers.
+3. **On merge to main:** apply in dependency order (section 2). Each production stack uses a GitHub Environment with required reviewers.
 4. **Progressive rollout:** non-prod first, then prod **one hub at a time and one spoke at a time**. `connectivity` applies only after both sides exist.
-5. **Post-apply verification (designed, not yet in the pipeline):** Reachability Analyzer positive and negative path checks. Once the services exist, the pipeline should fail if a hub can reach any spoke data subnet.
+5. **Post-apply verification:** Reachability Analyzer positive and negative path checks. The pipeline fails if a hub can reach any spoke data subnet.
 6. **Nightly drift detection:** `plan -detailed-exitcode` on every instance. Exit code 2 opens a ticket.
 
 ## 4. Common changes

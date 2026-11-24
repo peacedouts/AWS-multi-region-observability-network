@@ -12,7 +12,7 @@ The brief asked for a network design, a basic Terraform module structure, VPC cr
 - **`modules/vpc_peering`**, which connects two VPCs across accounts and regions, with routes on both sides
 - **`live/prod/connectivity`**, which uses that module to wire up all 9 peering connections
 
-Everything else is supporting work that shows how this would run in production, and it's safe to skim: the probe and alerting modules that implement the monitoring doc, the security groups, the SCPs and change guardrails, the deployer IAM role, the CI pipeline, the tests, [deployment.md](docs/deployment.md) and the [ADRs](docs/adr).
+Everything else is supporting work that shows how this would run in production, and it's safe to skim: the probe and alerting modules that implement the monitoring doc, the security groups, the SCPs and change guardrails, the deployer IAM role, the CI checks, the tests, [deployment.md](docs/deployment.md) and the [ADRs](docs/adr).
 
 ## How it works
 
