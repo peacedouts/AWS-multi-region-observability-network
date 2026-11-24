@@ -26,6 +26,8 @@ VPC peering connections publish **no CloudWatch metrics**: no bytes, no drops, n
 
 ### 3.1 Path health (probe, namespace `Network/CrossRegion`, dimensions `SourceHub`, `TargetRegion`)
 
+> **Deployment prerequisite:** the regional gateways require mutual TLS, so the probe needs its client certificate (`mtls_secret_arn`, issued by the hub's Private CA) before it is switched on. Without it every probe fails the TLS handshake and the whole alarm matrix fires. That is correct behavior, because the probe can't complete the real path, but it is noise during rollout.
+
 The probe measures each phase separately because each phase points to a different cause:
 
 | Metric | Healthy | Why it matters |
