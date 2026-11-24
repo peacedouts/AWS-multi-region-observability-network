@@ -4,6 +4,18 @@ This is the network layer for a central platform where internal teams review and
 
 If you only read one thing, read the [design doc](docs/architecture.md). The [monitoring doc](docs/monitoring.md) covers metrics and alerting, [deployment.md](docs/deployment.md) covers how the Terraform is organized and rolled out, and the [ADRs](docs/adr) record the main decisions.
 
+## Scope and how to review this
+
+The brief asked for a network design, a basic Terraform module structure, VPC creation and peering code, and a monitoring approach. That core is here:
+
+- **[The design doc](docs/architecture.md)**, with the diagrams and the reasoning behind each decision
+- **[The monitoring doc](docs/monitoring.md)**, covering which metrics matter and how alerting works
+- **`modules/vpc`**, which builds each VPC with its subnet tiers and route tables
+- **`modules/vpc_peering`**, which connects two VPCs across accounts and regions, with routes on both sides
+- **`live/prod/connectivity`**, which uses that module to wire up all 9 peering connections
+
+Everything else is supporting work that shows how this would run in production, and it's safe to skim: the probe and alerting modules that implement the monitoring doc, the security groups, the SCPs and change guardrails, the deployer IAM role, the CI pipeline, the tests and the ADRs.
+
 ## How it works
 
 ```mermaid
